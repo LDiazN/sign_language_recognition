@@ -12,6 +12,7 @@ from pathlib import Path
 
 # Local imports
 from slr.local_files.file_manager import FileManager
+from slr.dataset_manager.youtube_downloader import YoutubeDownloader
 
 @dataclasses.dataclass
 class SignDescription:
@@ -59,7 +60,7 @@ class DatasetManager:
 
     def __init__(self, file_manager : FileManager = FileManager()):
         self._file_manager = file_manager
-        pass
+        
 
     @property
     def file_manager(self) -> FileManager:
@@ -88,6 +89,66 @@ class DatasetManager:
             Name for the validation dataset 
         """
         return "MSASL_val.json"
+
+    @property
+    def train_dataset_dir(self) -> str:
+        """
+            Where the actual train videos are stored
+        """
+        return str(Path(self.file_manager.ms_dataset_dir, "train_vids"))
+
+    @property
+    def test_dataset_dir(self) -> str:
+        """
+            Where the actual test videos are stored
+        """
+        return str(Path(self.file_manager.ms_dataset_dir, "test_vids"))
+
+    @property
+    def val_dataset_dir(self) -> str:
+        """
+            Where the actual test videos are stored
+        """
+        return str(Path(self.file_manager.ms_dataset_dir, "val_vids"))
+
+    def download_train_dataset(self):
+        """
+            download videos for the training dataset
+        """
+        # Create if not exists
+        p = Path(self.train_dataset_dir)
+        if not p.exists():
+            p.mkdir(parents=True)
+
+        # Start download
+        yt = YoutubeDownloader(self.train_dataset_dir)
+        yt.download([x.url for x in self.read_train_dataset()])
+
+    def download_test_dataset(self):
+        """
+            download videos for the test dataset
+        """
+        # Create if not exists
+        p = Path(self.test_dataset_dir)
+        if not p.exists():
+            p.mkdir(parents=True)
+
+        # Start download
+        yt = YoutubeDownloader(self.test_dataset_dir)
+        yt.download([x.url for x in self.read_test_dataset()])
+
+    def download_val_dataset(self):
+        """
+            download videos for the training dataset
+        """
+        # Create if not exists
+        p = Path(self.val_dataset_dir)
+        if not p.exists():
+            p.mkdir(parents=True)
+
+        # Start download
+        yt = YoutubeDownloader(self.val_dataset_dir)
+        yt.download([x.url for x in self.read_val_dataset()])
 
     def _read_dataset_description(self, dataset_description_json_path : str) -> List[SignDescription]:
         """

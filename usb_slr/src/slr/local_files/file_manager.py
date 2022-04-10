@@ -16,12 +16,9 @@ class FileManager:
     """
 
     def __init__(self, home_dir : str = settings.slr_home) -> None:
-
         # Set up home directory
         self._home_dir = Path(home_dir)
-        if not self._home_dir.exists():
-            raise ValueError(f"Provided home_dir is not a valid path or it does not exists. Path: {home_dir}")
-    
+
     @property
     def ms_dataset_dir(self) -> str:
         """
@@ -57,3 +54,4 @@ class FileManager:
             if not ms_dir_path.exists():
                 ms_dir_path.mkdir(parents=True)
             zip_ref.extractall(self.ms_dataset_dir)
+
