@@ -29,6 +29,14 @@ class FileManager:
         """
         return str(Path(self._home_dir, "ms_dataset"))
     
+    @property
+    def ms_dataset_description_dir(self) -> str:
+        """
+            Returns the path to the microsoft dataset description dir, usually inside the
+            ms_dataset_dir path
+        """
+        return str(Path(self.ms_dataset_dir, "MS-ASL"))
+
     def store_ms_dataset(self, path : str):
         """
             Store in local files folder the microsoft dataset files. More info 
@@ -45,5 +53,7 @@ class FileManager:
 
         # Unzip files
         with zipfile.ZipFile(path, 'r') as zip_ref:
+            ms_dir_path = Path(self.ms_dataset_dir)
+            if not ms_dir_path.exists():
+                ms_dir_path.mkdir(parents=True)
             zip_ref.extractall(self.ms_dataset_dir)
-
