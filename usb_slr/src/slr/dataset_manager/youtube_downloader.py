@@ -28,6 +28,7 @@ class YoutubeDownloader:
     """
 
     def __init__(self, downloads_dir : str):
+        # logging.basicConfig(level=logging.DEBUG)  # TODO organizar logging
 
         # Consistency check
         if not Path(downloads_dir).exists():

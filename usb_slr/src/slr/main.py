@@ -8,6 +8,7 @@ from pathlib import Path
 # Local imports 
 from slr.config import settings
 from slr.local_files.file_manager import FileManager
+from slr.dataset_manager.dataset_managers import DatasetManager
 
 # Third party imports
 import click
@@ -23,6 +24,24 @@ def usb_slr():
     if not home_path.exists():
         click.echo(f"Creating home path in: {home_path}")
         home_path.mkdir()
+    
+
+@usb_slr.command()
+@click.argument("dataset", nargs=1, required=True)
+def fetch(dataset : str):
+    """
+        Fetch datasets. 
+    """
+    mngr = DatasetManager()
+
+    if dataset == 'train':
+        mngr.download_train_dataset() 
+    elif dataset == 'test':
+        mngr.download_test_dataset() 
+    elif dataset == 'val':
+        mngr.download_val_dataset() 
+    else:
+        click.echo(f"Invalid dataset name: {dataset}.") 
     
 
 @usb_slr.group()
