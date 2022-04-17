@@ -10,9 +10,6 @@ import logging
 import pickle
 
 
-# Local imports
-from slr.local_files.file_manager import FileManager
-
 # Third party imports
 from termcolor import colored
 from pytube import YouTube
@@ -82,6 +79,8 @@ class YoutubeDownloader:
                 self.save_history()
             except (VideoPrivate, VideoUnavailable) as e:
                 logging.error(colored(f"Could not download video '{url}'. Error: {e}", "red"))
+                self._download_history.add(url) # Add history when some of this error happens
+                self.save_history()
         
         logging.info(colored(f"Download finished. {len(self._download_history)} videos succesfully downloaded")) # type: ignore
 
@@ -109,7 +108,7 @@ class YoutubeDownloader:
 
 
 
-    def _find_history_file(self) -> Optional[Set]:
+    def _find_history_file(self) -> Optional[set]:
         """
             Try to search for a file with a set of 
             already downloaded videos in the download dir
