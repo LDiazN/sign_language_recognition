@@ -67,12 +67,15 @@ class ImageParser:
         """
         return self._model
 
-    def mediapipe_detection(self, image : np.ndarray ) -> Tuple[np.ndarray, NamedTuple]: # TODO annotate return type
+    def mediapipe_detection(self, image : np.ndarray, draw_landmarks : bool = False) -> Tuple[np.ndarray, NamedTuple]: # TODO annotate return type
         """
             Get the mediapipe prediction for this image.
 
             # Parameters
                 - image : `np.ndarray` = image in BGR opencv format
+                - draw_landmarks : bool = (optional) Drawl debug landmarks. Useful for debug
+            # Return
+                Image, Mediapipe results
         """
         
         # Color conversion 
@@ -92,15 +95,19 @@ class ImageParser:
         # Convert back to original format
         image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
+        if draw_landmarks:
+            self._draw_landmarks(image, results)
+
         return image, results
 
-    def parse_image(self, image : np.ndarray) -> PoseValues:
+    def parse_image(self, image : np.ndarray, draw_landmarks : bool = False) -> Tuple[np.ndarray, PoseValues]:
         """
-            Extract pose values from an image
+            Extract pose values from an image. 
+            You can optionally draw landmarks in the image, useful for debugging purposes.
         """
-        _, results = self.mediapipe_detection(image)
+        image, results = self.mediapipe_detection(image, draw_landmarks)
 
-        return PoseValues.from_mediapipe_result(results)
+        return image, PoseValues.from_mediapipe_result(results)
 
     def _draw_landmarks(self, image : np.ndarray, results : NamedTuple):
         """
@@ -147,7 +154,7 @@ class ImageParser:
             self._draw_landmarks(image, results)
 
             # Display to screen
-            cv2.imshow("Body landmarks", image)
+            cv2.imshow("Body landmarks", frame)
 
             # Break if requested 
             if cv2.waitKey(10) & 0xFF == ord('q'):

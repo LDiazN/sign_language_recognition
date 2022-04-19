@@ -43,7 +43,7 @@ class YoutubeDownloader:
         """
         return ".history.pkl"
 
-    def download(self, urls : List[str], double_check_history : bool = False): # TODO implement double checking 
+    def download(self, urls : List[str], double_check_history : bool = False, filenames : List[str] = []): # TODO implement double checking 
         """
             Download urls from provided list of urls
 
@@ -51,6 +51,7 @@ class YoutubeDownloader:
                 - urls : `[str]` = list of urls to youtube videos to scrape
                 - double_check_history : `bool` = Double check that files in history are actually downloaded, 
                     and download them if not
+                - filename : `[str]` = (optional) Optional names of files to give to the downloaded video 
         """
 
         logging.info(colored("Checkinf if history file is available...", 'cyan'))
@@ -65,7 +66,9 @@ class YoutubeDownloader:
 
         # Download videos
         logging.info(colored(f'Starting download for {len(urls)} urls', 'cyan'))
-        for url in tqdm.tqdm(urls):
+
+        it = zip(urls, filenames) if filenames else zip(urls, [None] * len(urls))
+        for (url, filename) in tqdm.tqdm(it):
 
             # If already downloaded, skip it
             if url in self._download_history:
@@ -74,7 +77,12 @@ class YoutubeDownloader:
 
             # Try to download video
             try:
-                self._get_video(url)
+                # Download with specific filename if provided 
+                if filename:
+                    path = Path( self._downloads_dir, filename)
+                    self._get_video(url, out_path=str(path))
+                else:
+                    self._get_video(url)
                 self._download_history.add(url) # type: ignore
                 self.save_history()
             except (VideoPrivate, VideoUnavailable) as e:

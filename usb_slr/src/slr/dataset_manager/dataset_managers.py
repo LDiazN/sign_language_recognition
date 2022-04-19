@@ -3,18 +3,28 @@
     to manage datasets 
 """
 
+# Third party imports
+import logging
+import numpy as np
+from mediapipe.python.solutions.holistic import Holistic
+import termcolor
+
 # Python imports
 import dataclasses
 import json
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 from typing_extensions import Self 
 from pathlib import Path
+import json
+import pickle
 
 # Local imports
 from slr.local_files.file_manager import FileManager
 from slr.dataset_manager.youtube_downloader import YoutubeDownloader
+from slr.data_processing.video_converter import VideoConverter
 
-@dataclasses.dataclass
+
+@dataclasses.dataclass(eq=True, unsafe_hash=True)
 class SignDescription:
     """
         Represents a sign description as depicted in the microsoft dataset
@@ -34,8 +44,8 @@ class SignDescription:
     end_time    : float
     url         : str
     text        : str
-    box         : List[float]
     review      : Optional[int]
+    box         : List[float] = dataclasses.field(hash=False)
 
     @property
     def dict(self):
@@ -53,6 +63,13 @@ class SignDescription:
             dict["review"] = None
         return cls(**dict)
 
+
+    @property
+    def json(self) -> str:
+        """
+            Return a json string from this object
+        """
+        return json.dumps(self.dict)
 class DatasetManager:
     """
         Use this class to run common operations for datasets stored locally
@@ -97,6 +114,7 @@ class DatasetManager:
         """
         return str(Path(self.file_manager.ms_dataset_dir, "train_vids"))
 
+
     @property
     def test_dataset_dir(self) -> str:
         """
@@ -107,9 +125,30 @@ class DatasetManager:
     @property
     def val_dataset_dir(self) -> str:
         """
-            Where the actual test videos are stored
+            Where the actual validation videos are stored
         """
         return str(Path(self.file_manager.ms_dataset_dir, "val_vids"))
+
+    @property
+    def train_numeric_dataset_dir(self) -> str:
+        """
+            Path where to store the numeric train dataset generated from a video dataset using mediapipe
+        """
+        return str(Path(self.file_manager.ms_dataset_dir, "train_dataset_features"))
+
+    @property
+    def test_numeric_dataset_dir(self) -> str:
+        """
+            Path where to store the numeric test dataset generated from a video dataset using mediapipe
+        """
+        return str(Path(self.file_manager.ms_dataset_dir, "test_dataset_features"))
+
+    @property
+    def val_numeric_dataset_dir(self) -> str:
+        """
+            Path where to store the numeric validation dataset generated from a video dataset using mediapipe
+        """
+        return str(Path(self.file_manager.ms_dataset_dir, "val_dataset_features"))        
 
     def download_train_dataset(self):
         """
@@ -122,7 +161,8 @@ class DatasetManager:
 
         # Start download
         yt = YoutubeDownloader(self.train_dataset_dir)
-        yt.download([x.url for x in self.read_train_dataset()])
+        train_dataset_desc = self.read_train_dataset()
+        yt.download([x.url for x in train_dataset_desc], filenames=[x.file for x in train_dataset_desc])
 
     def download_test_dataset(self):
         """
@@ -135,7 +175,8 @@ class DatasetManager:
 
         # Start download
         yt = YoutubeDownloader(self.test_dataset_dir)
-        yt.download([x.url for x in self.read_test_dataset()])
+        test_dataset_desc = self.read_test_dataset()
+        yt.download([x.url for x in test_dataset_desc], filenames=[x.file for x in test_dataset_desc])
 
     def download_val_dataset(self):
         """
@@ -148,7 +189,8 @@ class DatasetManager:
 
         # Start download
         yt = YoutubeDownloader(self.val_dataset_dir)
-        yt.download([x.url for x in self.read_val_dataset()])
+        val_dataset_desc = self.read_val_dataset()
+        yt.download([x.url for x in val_dataset_desc], filenames=[x.file for x in val_dataset_desc])
 
     def _read_dataset_description(self, dataset_description_json_path : str) -> List[SignDescription]:
         """
@@ -190,4 +232,210 @@ class DatasetManager:
         """
         return self._read_dataset_description(str(Path(self.file_manager.ms_dataset_description_dir, self.test_dataset_name)))
 
+    def _create_numeric_dataset(self, root_dir : str, video_datasets_dir : str, model : Holistic, description : List[SignDescription], skip_if_in_index : bool = True, display_vids : bool = False):
+        """
+            Create a numeric dataset in local storage from a dir with videos
+        """
+        numeric_dataset = NumericDatasetClient(root_dir, video_datasets_dir)
+        numeric_dataset.save_sign_features_from_description(description, model, display_vids, skip_if_in_index  )
+
+    def create_val_numeric_dataset(self, model : Holistic, skip_if_in_index : bool = True, display_vids : bool = False):
+        """
+            Create a numeric validation dataset in local sotrage from the validation videos dir
+        """
+        # Check existence, and create if not exists
+        path = Path(self.val_numeric_dataset_dir)
+        if not path.exists():
+            path.mkdir(parents=True)
+        
+        # load descriptions
+        descriptions = self.read_val_dataset()
+
+        self._create_numeric_dataset(str(path), self.val_dataset_dir, model, descriptions, skip_if_in_index, display_vids)
+
+    def create_train_numeric_dataset(self, model : Holistic, skip_if_in_index : bool = True, display_vids : bool = False):
+        """
+            Create a numeric train dataset in local sotrage from the validation videos dir
+        """
+        # Check existence, and create if not exists
+        path = Path(self.train_numeric_dataset_dir)
+        if not path.exists():
+            path.mkdir(parents=True)
+        
+        # load descriptions
+        descriptions = self.read_train_dataset()
+
+        self._create_numeric_dataset(str(path), self.train_dataset_dir, model, descriptions, skip_if_in_index, display_vids)
+
+    def create_test_numeric_dataset(self, model : Holistic, skip_if_in_index : bool = True, display_vids : bool = False):
+        """
+            Create a numeric test dataset in local sotrage from the validation videos dir
+        """
+        # Check existence, and create if not exists
+        path = Path(self.test_numeric_dataset_dir)
+        if not path.exists():
+            path.mkdir(parents=True)
+        
+        # load descriptions
+        descriptions = self.read_test_dataset()
+
+        self._create_numeric_dataset(str(path), self.test_dataset_dir, model, descriptions, skip_if_in_index, display_vids)
+
+
+
+class NumericDatasetClient:
+    """
+        Represents an interface to create and manage numeric datasets.
+        A numeric dataset is a numeric representation of the video dataset, 
+        and is what you feed to the models
+
+        # Parameters
+            - root_dir : `str` = Where the datasets will be stored and manager
+            - video_datasets_dir : `str` = Where to find for videos to convert into datasets
+    """
+
+    def __init__(self, root_dir : str, video_datasets_dir : str):
+        root_dir_path = Path(root_dir)
+
+        # Check if files exists
+        if not root_dir_path.exists():
+            raise FileNotFoundError(f"Provided root file for NumericDatasetClient object does not exists: {root_dir}")
+        
+        video_datasets_path = Path(video_datasets_dir)
+
+        # Check if files exists
+        if not video_datasets_path.exists():
+            raise FileNotFoundError(f"Provided root file for NumericDatasetClient object does not exists: {root_dir}")
+        
+        self._root_dir = root_dir
+        self._video_datasets_dir = video_datasets_dir
+
+    @property
+    def _index_file_name(self) -> str:
+        """
+            Name of the index file used to recover dataset mapping from folder with files
+        """
+        return ".index.pkl"
     
+    def load_index_file(self) -> Optional[Dict[str, Any]]:
+        """
+            Try to load the index file from the dataset path. 
+            Index file has the following fields:
+                - next_id : `int` = next valid id
+                - mappings : `Dict[int, SignDescription]` = mappings from id to sign
+        """
+        path = Path(self.root_dir, self._index_file_name)
+
+        if not path.exists():
+            return None
+
+        with path.open('rb') as f:
+            index = pickle.load(f)
+
+        return index
+        
+    def load_index_file_or_default(self) -> Dict[str, Any]:
+        return self.load_index_file() or {'next_id' : 0, 'mappings' : {}}
+
+    def save_index_file(self, index : Dict[str, Any]):
+        """
+            Try to save specified index file
+        """
+        path = Path(self.root_dir, self._index_file_name)
+
+        with path.open("wb") as f:
+            pickle.dump(index, f)
+
+    @property
+    def root_dir(self) -> str:
+        """
+            Return root dir where this dataset is stored
+        """
+        return self._root_dir
+
+    @property
+    def video_datasets_dir(self) -> str:
+        """
+            Path where to look for videos datasets
+        """
+        return self._video_datasets_dir
+
+    def _save_vid_fn(self, sign : SignDescription, features : np.ndarray):
+        """
+            Create a function to save the features for a single vid
+        """
+        index_file = self.load_index_file_or_default()
+    
+        next_id = index_file['next_id']
+
+        # Save array as csv
+        path = Path(self.root_dir, f"{next_id}.csv")
+        np.savetxt(str(path), features, delimiter=",")
+
+        # Update index file
+        index_file['mappings'][next_id] = sign
+        index_file['next_id'] += 1
+
+        self.save_index_file(index_file)
+
+    def save_sign_features_from_description(self, signs : List[SignDescription], model : Holistic, display_vids : bool = False, skip_if_in_index : bool = True):
+        """
+            Save features in disk
+        """
+        self.process_signs_from_description(signs, model, display_vids, self._save_vid_fn, skip_if_in_index)
+
+    def process_signs_from_description(self, signs : List[SignDescription], model : Holistic, display_vids : bool = False, process_fn : Optional[Callable[[SignDescription, np.ndarray], None]] = None, skip_if_in_index : bool = True):
+        """
+            Create a dataframe from a list of videos
+            # Parameters
+                - signs : `[SignDescription]` = List of signs to parse
+                - model : `Holistic` = Model to use to parse skeletal data from images
+                - display_vids : `bool` = (optional) If should display videos as they're parsed
+        """
+
+        # Create video converter from holistic model
+        video_converter = VideoConverter.from_holistic_model(model)
+
+        for sign in signs:
+
+            if skip_if_in_index:
+                # Skip sign if already in index
+                index_file = self.load_index_file_or_default()
+                known_signs = set(index_file['mappings'].values())
+                if sign in known_signs:
+                    continue
+
+            # Check if sign file exists
+            file_path = self._get_vid_path_from_name(sign.file + ".mp4")
+            if not file_path.exists():
+                logging.warn(termcolor.colored(f"Could not parse video file {sign.file}, it does not exists. Skiping sign: {sign}", "yellow") )
+                continue
+
+            # If exists, extract features
+            vid_features = self.create_row_from_description(sign, video_converter, display_vids)
+
+            # Process vid if requested
+            if process_fn:
+                process_fn(sign, vid_features)
+
+    def _get_vid_path_from_name(self, vid_name : str) -> Path:
+        """
+            Create path for a video given its name
+        """
+        return Path(self._video_datasets_dir, vid_name)
+        
+
+    def create_row_from_description(self, sign : SignDescription, video_converter : VideoConverter, display_video : bool = False) -> np.ndarray:
+        """
+            Create a row from a single sign into an array.
+        """
+
+        file_path = self._get_vid_path_from_name(sign.file + ".mp4")
+
+        assert file_path.exists(), "Create row function assumes that the file does exists"
+
+        data = video_converter.parse_video_from_file(str(file_path), sign.start_time, sign.end_time, display_video)
+        as_arrays = [d.concatenated for d in data]
+
+        return np.array(as_arrays)
+
