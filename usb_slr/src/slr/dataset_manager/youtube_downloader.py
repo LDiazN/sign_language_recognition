@@ -3,7 +3,6 @@
 """
 
 # Python imports 
-from ast import Set
 from pathlib import Path
 from typing import List, Optional
 import logging
@@ -113,8 +112,6 @@ class YoutubeDownloader:
 
         # Download video
         return yt.streams.filter(file_extension=format).get_by_resolution(resolution).download(out_path)
-
-
 
     def _find_history_file(self) -> Optional[set]:
         """
