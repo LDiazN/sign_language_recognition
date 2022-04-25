@@ -308,6 +308,20 @@ class DatasetManager:
         return "MSASL_val.json"
 
     @property
+    def classes_description_json_name(self) -> str:
+        """
+            Name of the file with classes description
+        """
+        return "MSASL_classes.json"
+
+    @property
+    def synonym_description_json_name(self) -> str:
+        """
+            Name of the file with synonim description
+        """
+        return "MSASL_synonym.json"
+
+    @property
     def train_dataset_dir(self) -> str:
         """
             Where the actual train videos are stored
@@ -349,6 +363,23 @@ class DatasetManager:
             Path where to store the numeric validation dataset generated from a video dataset using mediapipe
         """
         return str(Path(self.file_manager.ms_dataset_dir, "val_dataset_features"))        
+
+    @property
+    def label_map(self) -> Dict[int, str]:
+        """
+            Return a dict mapping from id to actual word value
+        """
+        file_path = Path(self.file_manager.ms_dataset_description_dir, self.classes_description_json_name)
+        # Check if file exists
+        if not file_path.exists():
+            raise FileNotFoundError(f"Could not find file with classes description: {str(file_path)}")
+
+        # Open and load json
+        with open(str(file_path)) as file:
+            json_dict = json.load(file)
+
+        return {i : w for (i,w) in enumerate(json_dict)}
+
 
     def download_train_dataset(self):
         """
