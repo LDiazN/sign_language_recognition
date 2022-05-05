@@ -23,8 +23,10 @@ class PoseValues:
         Represents all values for a pose
     """
 
-    # Holds both positions and visibility (x,y,z, vis)
+    # Holds both positions and visibility (x,y,z, visibility)
     pose : np.ndarray # Size: 132
+
+    # Holds positions (x,y,z)
     face : np.ndarray # Size: 1404
     left_hand : np.ndarray # Size: 63
     right_hand : np.ndarray # Size: 63
@@ -42,7 +44,7 @@ class PoseValues:
         return cls(pose=pose, face=face, left_hand = lh, right_hand = rh)
     
     @property
-    def concatenated(self):
+    def concatenated(self) -> np.ndarray:
         """
             Return a single array with all numbers in a single row.
             Array order:

@@ -43,6 +43,32 @@ def fetch(dataset : str):
     else:
         click.echo(f"Invalid dataset name: {dataset}.") 
     
+@usb_slr.command()
+@click.argument("dataset", nargs=1, required=True)
+def generate_numeric(dataset : str):
+    """
+        Generate a numeric dataset and store it locally. The specified dataset should be one of 
+        "train", "test", "eval"
+    """
+
+    # Consistency check
+    valid_datasets = ["train", "test", "eval"]
+    if dataset not in valid_datasets:
+        click.echo(f"Bad dataset '{dataset}'. Choices are: {valid_datasets}")
+        return 1
+
+    from mediapipe.python.solutions.holistic import Holistic
+    with Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5) as holistic:
+        ds_manager = DatasetManager()
+        funcs = {
+            "train" : ds_manager.create_train_numeric_dataset,
+            "test"  : ds_manager.create_test_numeric_dataset,
+            "eval"  : ds_manager.create_val_numeric_dataset
+        }
+        funcs[dataset](holistic, display_vids=True) # train DS
+
+
+
 
 @usb_slr.group()
 def load():
