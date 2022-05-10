@@ -4,7 +4,7 @@
 
 # Python imports
 from turtle import right
-from typing import NamedTuple, Tuple
+from typing import List, NamedTuple, Tuple
 import dataclasses
 from typing_extensions import Self
 import enum
@@ -15,8 +15,10 @@ import cv2
 import numpy as np
 from matplotlib import pyplot as plt
 import mediapipe as mp
-import mediapipe.python.solution_base as mp_solution_base
 from mediapipe.python.solutions import holistic as mp_holistic
+from mediapipe.python.solutions.pose_connections import POSE_CONNECTIONS
+from mediapipe.python.solutions.face_mesh_connections import FACEMESH_CONTOURS
+from mediapipe.python.solutions.hands_connections import HAND_CONNECTIONS
 from mediapipe.python.solutions import drawing_utils as mp_drawing
 
 class EdgeType(enum.Enum):
@@ -44,6 +46,46 @@ class Edge:
                 [start, end, type]
         """
         return np.array([self.start, self.end, self.type.value])
+
+@dataclasses.dataclass
+class JointData:
+    """
+        Data for a joint, position and visibility
+    """
+    x : float 
+    y : float
+    z : float
+    visibility : bool
+
+    @property
+    def as_array(self) -> np.ndarray:
+        """
+            array representation for this joint
+        """
+        return np.array([self.x, self.y, self.z, int(self.visibility)])
+
+@dataclasses.dataclass
+class PoseGraph:
+    """
+        A graph representing a pose
+    """
+    edges : List[Edge]
+    n_nodes : int 
+    joint_data : List[JointData]
+
+    @property
+    def edges_array(self) -> np.ndarray:
+        """
+            Array representing the edges
+        """
+        return np.array([e.as_array for e in self.edges])
+
+    @property
+    def joints_array(self) -> np.ndarray:
+        """
+            Array representation for joints
+        """
+        return np.array([j.as_array for j in self.joint_data])
 
 @dataclasses.dataclass
 class PoseValues:
@@ -86,7 +128,7 @@ class PoseValues:
         """
             Return the Pose value from an array
         """
-        assert array.shape == (1, 132 + 1404 + 63 + 63)
+        assert array.shape == (132 + 1404 + 63 + 63,)
 
         pose = array[:132]
         face = array[132:132 + 1404]
@@ -94,6 +136,70 @@ class PoseValues:
         right_hand = array[1404 + 132 + 63 : 1404 + 132 + 63 + 63]
 
         return cls(pose, face, left_hand, right_hand)
+    
+    @property
+    def as_graph(self) -> PoseGraph:
+        """
+            A graph representation for this pose. Useful with GNNs
+        """
+
+        joint_datas = []
+        joint_counts = {
+            "pose" : 0,
+            "face" : 0,
+            "lh" : 0,
+            "rh" : 0
+        }
+
+        # Parse pose values, x, y, z and visibility
+        end = len(self.pose)
+        for i in range(0, end, 4):
+            pose = JointData(self.pose[i], self.pose[i+1], self.pose[i + 2], self.pose[i + 3])
+            joint_datas.append(pose)
+            joint_counts["pose"] += 1
+
+
+        data = [(self.face, "face"), (self.left_hand, "lh"), (self.right_hand, "rh")]
+        for (d, name) in data:
+            end = len(d)
+            for i in range(0, end, 3):
+                x, y, z = self.face[i], self.face[i+1], self.face[i+2]
+                vis = x == y == z
+                joint = JointData(x,y,z,vis)
+                joint_datas.append(joint)
+                joint_counts[name] += 1
+        
+        # Generate edges information. 
+        #  - pose nodes are in [0, pose)
+        #  - face nodes are in [pose, pose + face)
+        #  - left hand nodes are in [pose + face, pose + face + lh)
+        #  - right hand nodes are in [pose + face + lh, pose + face + lh + rh)
+         
+        # Add pose nodes
+        edges = []
+        for (start_node, end_node) in POSE_CONNECTIONS:
+            edges.append(Edge(start_node, end_node, EdgeType.POSE))
+
+        # Add face nodes
+        for (start_node, end_node) in FACEMESH_CONTOURS:
+            start_node += joint_counts['pose']
+            end_node += joint_counts['pose']
+            edges.append(Edge(start_node, end_node, EdgeType.FACE))
+
+        # Add left hand nodes
+        for (start_node, end_node) in HAND_CONNECTIONS:
+            start_node += joint_counts['pose'] + joint_counts['face']
+            end_node += joint_counts['pose'] + joint_counts['face']
+            edges.append(Edge(start_node, end_node, EdgeType.LEFT_HAND))
+
+        # Add left hand nodes
+        for (start_node, end_node) in HAND_CONNECTIONS:
+            start_node += joint_counts['pose'] + joint_counts['face'] + joint_counts['lh']
+            end_node += joint_counts['pose'] + joint_counts['face'] + joint_counts['lh']
+            edges.append(Edge(start_node, end_node, EdgeType.RIGHT_HAND))
+            
+        return PoseGraph(edges, sum(joint_counts.values()), joint_datas)
+
 
 class ImageParser:
     """
