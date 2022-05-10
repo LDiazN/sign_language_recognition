@@ -3,6 +3,7 @@
 """
 
 # Python imports
+from email.policy import default
 from pathlib import Path
 
 # Local imports 
@@ -45,7 +46,8 @@ def fetch(dataset : str):
     
 @usb_slr.command()
 @click.argument("dataset", nargs=1, required=True)
-def generate_numeric(dataset : str):
+@click.option("--display", default=False, help="Display video processing, showing the video itself and the skeletal mesh")
+def generate_numeric(dataset : str, display : bool = False):
     """
         Generate a numeric dataset and store it locally. The specified dataset should be one of 
         "train", "test", "eval"
@@ -65,7 +67,7 @@ def generate_numeric(dataset : str):
             "test"  : ds_manager.create_test_numeric_dataset,
             "eval"  : ds_manager.create_val_numeric_dataset
         }
-        funcs[dataset](holistic, display_vids=True) # train DS
+        funcs[dataset](holistic, display_vids=display) 
 
 
 

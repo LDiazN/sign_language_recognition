@@ -240,7 +240,7 @@ class NumericDatasetClient:
 
         assert file_path.exists(), "Create row function assumes that the file does exists"
 
-        data = video_converter.parse_video_from_file(str(file_path), sign.start_time, sign.end_time, display_video)
+        data = video_converter.parse_video_from_file(str(file_path), sign.start_time, sign.end_time, display_video, sign.fps)
         as_arrays = [d.concatenated for d in data]
 
         return np.array(as_arrays)
@@ -393,7 +393,7 @@ class DatasetManager:
         # Start download
         yt = YoutubeDownloader(self.train_dataset_dir)
         train_dataset_desc = self.read_train_dataset()
-        yt.download([x.url for x in train_dataset_desc], filenames=[x.file for x in train_dataset_desc])
+        yt.download([x.url for x in train_dataset_desc], filenames=[x.file + ".mp4" for x in train_dataset_desc])
 
     def download_test_dataset(self):
         """
@@ -407,7 +407,7 @@ class DatasetManager:
         # Start download
         yt = YoutubeDownloader(self.test_dataset_dir)
         test_dataset_desc = self.read_test_dataset()
-        yt.download([x.url for x in test_dataset_desc], filenames=[x.file for x in test_dataset_desc])
+        yt.download([x.url for x in test_dataset_desc], filenames=[x.file + ".mp4" for x in test_dataset_desc])
 
     def download_val_dataset(self):
         """
@@ -421,7 +421,7 @@ class DatasetManager:
         # Start download
         yt = YoutubeDownloader(self.val_dataset_dir)
         val_dataset_desc = self.read_val_dataset()
-        yt.download([x.url for x in val_dataset_desc], filenames=[x.file for x in val_dataset_desc])
+        yt.download([x.url for x in val_dataset_desc], filenames=[x.file + ".mp4" for x in val_dataset_desc])
 
     def _read_dataset_description(self, dataset_description_json_path : str) -> List[SignDescription]:
         """

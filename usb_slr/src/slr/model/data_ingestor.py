@@ -44,7 +44,7 @@ class DataIngestor:
         """
         # Retrieve data 
         videos, labels = [], []
-        for features, description in self._dataset_manager.test_numeric_dataset_client.retrieve_data(): # TODO use training data as well, not only test data
+        for features, description in self._dataset_manager.train_numeric_dataset_client.retrieve_data(): # TODO use training data as well, not only test data
             
             # Skip this row if does not matches predicate
             if predicate and not predicate(features, description):

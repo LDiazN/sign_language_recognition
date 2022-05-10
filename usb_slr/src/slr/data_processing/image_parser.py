@@ -6,6 +6,8 @@
 from turtle import right
 from typing import NamedTuple, Tuple
 import dataclasses
+from typing_extensions import Self
+import enum
 
 # Third party imports
 from cv2.mat_wrapper import Mat
@@ -16,6 +18,32 @@ import mediapipe as mp
 import mediapipe.python.solution_base as mp_solution_base
 from mediapipe.python.solutions import holistic as mp_holistic
 from mediapipe.python.solutions import drawing_utils as mp_drawing
+
+class EdgeType(enum.Enum):
+    """
+        Possible variations of a type of pose
+    """
+    POSE = 0
+    FACE = 1
+    LEFT_HAND = 2
+    RIGHT_HAND = 3
+
+@dataclasses.dataclass
+class Edge:
+    """
+        An edge description, start position, end position and type of edge 
+    """
+    start : int
+    end : int
+    type : EdgeType
+
+    @property
+    def as_array(self) -> np.ndarray:
+        """
+            An array representation of this edge with the following format:
+                [start, end, type]
+        """
+        return np.array([self.start, self.end, self.type.value])
 
 @dataclasses.dataclass
 class PoseValues:
@@ -52,6 +80,20 @@ class PoseValues:
         """
 
         return np.concatenate([self.pose, self.face, self.left_hand, self.right_hand])
+
+    @classmethod
+    def from_array(cls, array : np.ndarray) -> Self:
+        """
+            Return the Pose value from an array
+        """
+        assert array.shape == (1, 132 + 1404 + 63 + 63)
+
+        pose = array[:132]
+        face = array[132:132 + 1404]
+        left_hand = array[132 + 1404:1404 + 132 + 63]
+        right_hand = array[1404 + 132 + 63 : 1404 + 132 + 63 + 63]
+
+        return cls(pose, face, left_hand, right_hand)
 
 class ImageParser:
     """
