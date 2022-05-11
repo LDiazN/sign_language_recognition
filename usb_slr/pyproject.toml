@@ -28,6 +28,8 @@ keras-utils = "^1.0.13"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
+jupyter = "^1.0.0"
+notebook = "^6.4.11"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
