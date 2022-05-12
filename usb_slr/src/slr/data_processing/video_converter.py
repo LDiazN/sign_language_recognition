@@ -5,8 +5,9 @@
 """
 
 # Local imports
-from typing import List
+from typing import List, Optional
 from typing_extensions import Self
+from click import FileError
 from slr.data_processing.image_parser import ImageParser, PoseValues
 
 # Python imports
@@ -42,14 +43,15 @@ class VideoConverter:
         """
         return self._image_parser
 
-    def parse_video(self, video : cv2.VideoCapture, start_second : float, end_second : float, display_video : bool = False) -> List[PoseValues]:
+    def parse_video(self, video : cv2.VideoCapture, start_second : float, end_second : float, display_video : bool = False, vid_fps : Optional[float] = None) -> List[PoseValues]:
         """
             Parse pose values from provided image from start second to end second
         """
         assert end_second > start_second, "Inconsistent video bounds"
 
         # Get video fps count
-        fps : float = video.get(cv2.CAP_PROP_FPS)
+        fps : float = vid_fps or video.get(cv2.CAP_PROP_FPS)
+
         total = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
 
         # Get initial and final frame index
@@ -82,7 +84,7 @@ class VideoConverter:
 
         return parsed_data
 
-    def parse_video_from_file(self, video_path : str, start_second : float, end_second : float, display_video : bool = False):
+    def parse_video_from_file(self, video_path : str, start_second : float, end_second : float, display_video : bool = False, vid_fps : Optional[float] = None):
         """
             Parse data from video, but from file
         """
@@ -93,5 +95,7 @@ class VideoConverter:
             raise FileNotFoundError(f"Provided video file could not be found: {video_path}")
         
         video = cv2.VideoCapture(video_path)
+        if video.isOpened() == False:
+            raise ValueError(f"could not open video file: {path_object}")
 
-        return self.parse_video(video, start_second, end_second, display_video)
+        return self.parse_video(video, start_second, end_second, display_video, vid_fps)

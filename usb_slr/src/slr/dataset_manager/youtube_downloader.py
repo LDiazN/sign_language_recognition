@@ -78,7 +78,7 @@ class YoutubeDownloader:
             try:
                 # Download with specific filename if provided 
                 if filename:
-                    path = Path( self._downloads_dir, filename)
+                    path = self._downloads_dir
                     self._get_video(url, out_path=str(path))
                 else:
                     self._get_video(url)
