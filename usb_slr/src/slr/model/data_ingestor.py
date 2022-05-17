@@ -6,6 +6,7 @@ import random
 from tkinter import Frame
 
 from pandas import array
+from slr.data_processing.image_parser import PoseValues
 from tensorflow.keras.utils import to_categorical # type: ignore
 from sklearn.model_selection import train_test_split
 
@@ -42,7 +43,8 @@ class DataIngestor:
             predicate       : Optional[ Callable[ [np.ndarray, SignDescription], bool] ] = None, 
             frame_limit     : Optional[int] = None, 
             video_limit     : Optional[int] = None, 
-            padding_func    : Optional[ Callable[ [np.ndarray],np.ndarray] ] = None 
+            padding_func    : Optional[ Callable[ [np.ndarray],np.ndarray] ] = None ,
+            normalize_location : bool = False
         ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
             Create the data to be feeded into the model
@@ -51,8 +53,9 @@ class DataIngestor:
             * frame_limit : limit of frames per video
             * video_limit : limit of videos for training data
             * padding_func : padding function to use
+            * normalize_location : `bool` = if this data should be location-normalized
 
-            # Return 
+            # Return
             (Training dataset, test dataset, training labels, test labels)
         """
 
@@ -71,6 +74,13 @@ class DataIngestor:
 
             # Get the feature shape
             rows, _ = features.shape
+
+            # normalize location if requested so
+            if normalize_location:
+                for (i,row) in enumerate(features):
+                    pose_value = PoseValues.from_array(row)
+                    pose_value.normalize_location()
+                    features[i] = pose_value.concatenated
 
             if rows < FRAME_CAP:
                 # Configurable padding function

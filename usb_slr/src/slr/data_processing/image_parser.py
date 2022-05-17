@@ -4,22 +4,21 @@
 
 # Python imports
 from turtle import right
-from typing import List, NamedTuple, Tuple
+from typing import Iterable, List, NamedTuple, Tuple
 import dataclasses
 from typing_extensions import Self
 import enum
 
 # Third party imports
-from cv2.mat_wrapper import Mat
 import cv2
 import numpy as np
 from matplotlib import pyplot as plt
-import mediapipe as mp
 from mediapipe.python.solutions import holistic as mp_holistic
 from mediapipe.python.solutions.pose_connections import POSE_CONNECTIONS
 from mediapipe.python.solutions.face_mesh_connections import FACEMESH_CONTOURS
 from mediapipe.python.solutions.hands_connections import HAND_CONNECTIONS
 from mediapipe.python.solutions import drawing_utils as mp_drawing
+from scipy.misc import face
 
 class EdgeType(enum.Enum):
     """
@@ -93,7 +92,7 @@ class PoseValues:
         Represents all values for a pose
     """
 
-    # Holds both positions and visibility (x,y,z, visibility)
+    # Holds both positions and visibility (x,y,z, visibility), vertices 11 and 12 are shoulder joints
     pose : np.ndarray # Size: 132
 
     # Holds positions (x,y,z)
@@ -122,6 +121,97 @@ class PoseValues:
         """
 
         return np.concatenate([self.pose, self.face, self.left_hand, self.right_hand])
+
+    def normalize_location(self):
+        """
+            Perform a location normalization. It means that the entire pose will be at the origin, 
+            it does not matter in which part of the screen it originally was. 
+        """
+        pose_vertices = [np.array(x) for x in self.pose_vectors]
+        face_vertices = [np.array(x) for x in self.face_vectors]
+        lhand_vertices = [np.array(x) for x in self.left_hand_vectors]
+        rhand_vertices = [np.array(x) for x in self.right_hand_vectors]
+
+        # Shoulder joints
+        shoulder_1 = pose_vertices[11][:3]
+        shoulder_2 = pose_vertices[12][:3]
+
+        pivot = .5 * (shoulder_1 + shoulder_2) 
+        face_vertices = [v - pivot for v in face_vertices]
+        lhand_vertices = [v - pivot for v in lhand_vertices]
+        rhand_vertices = [v - pivot for v in rhand_vertices]
+        pivot = np.array([*pivot, 0])
+        pose_vertices = [v - pivot for v in pose_vertices]
+
+        self.face = np.array(face_vertices).flatten()
+        self.pose = np.array(pose_vertices).flatten()
+        self.left_hand = np.array(lhand_vertices).flatten()
+        self.right_hand = np.array(rhand_vertices).flatten()
+
+
+
+    def display(self):
+        """
+            Display this pose as a graph in matplot lib
+        """
+        plt.rcParams["figure.figsize"] = [7.50, 3.50]
+        plt.rcParams["figure.autolayout"] = True
+        points = [(x,-y) for (x,y,_,_) in self.pose_vectors] + [(x,-y) for (x,y,_) in self.face_vectors]
+        xs = [x for (x,_) in points]
+        ys = [y for (_,y) in points]
+
+        maxi_x = max(max(xs), abs(min(xs)))
+        maxi_y = max(max(ys), abs(min(ys)))
+        maxi = max(maxi_x, maxi_y)
+
+        plt.axis([-maxi, maxi, -maxi, maxi])
+        plt.plot(xs, ys, 'r*')
+        plt.show()
+
+    @property
+    def pose_vectors(self) -> Iterable[Tuple[float, float, float, float]]:
+        """
+            Returns the vectors that correspond to the pose, in the following format:
+                (x,y,z, visibility)
+        """
+        for i in range(0, len(self.pose), 4):
+            yield (self.pose[i], self.pose[i + 1], self.pose[i+2], self.pose[i+3])
+    
+    @property
+    def face_vectors(self) -> Iterable[Tuple[float, float, float]]:
+        """
+            Returns the vectors that correspond to the face, in the following format:
+                (x,y,z)
+        """
+        for i in range(0, len(self.face), 3):
+            yield (self.face[i], self.face[i + 1], self.face[i+2])
+
+    def _hand_vectors(self, hand : np.ndarray) -> Iterable[Tuple[float, float, float]]:
+        """
+            Returns the vectors that correspond to the hand, in the following format:
+                (x,y,z)
+        """
+        for i in range(0, len(hand), 3):
+            yield (hand[i], hand[i + 1], hand[i+2])
+
+    @property
+    def left_hand_vectors(self) -> Iterable[Tuple[float, float, float]]:
+        """
+            Returns the vectors that correspond to the left hand, in the following format:
+                (x,y,z)
+        """
+        for x in self._hand_vectors(self.left_hand):
+            yield x
+
+    @property
+    def right_hand_vectors(self) -> Iterable[Tuple[float, float, float]]:
+        """
+            Returns the vectors that correspond to the right hand, in the following format:
+                (x,y,z)
+        """
+        for x in self._hand_vectors(self.right_hand):
+            yield x
+
 
     @classmethod
     def from_array(cls, array : np.ndarray) -> Self:
@@ -254,6 +344,9 @@ class ImageParser:
         """
             Extract pose values from an image. 
             You can optionally draw landmarks in the image, useful for debugging purposes.
+
+            # Returns 
+                the image and the pose values extracted for this image
         """
         image, results = self.mediapipe_detection(image, draw_landmarks)
 
@@ -297,14 +390,10 @@ class ImageParser:
             # Read from feed
             ret, frame = cap.read()
 
-            # Make detections 
-            image, results = self.mediapipe_detection(frame)
-
-            # Draw landmarks
-            self._draw_landmarks(image, results)
+            img, res = self.parse_image(frame, True)
 
             # Display to screen
-            cv2.imshow("Body landmarks", frame)
+            cv2.imshow("Body landmarks", img)
 
             # Break if requested 
             if cv2.waitKey(10) & 0xFF == ord('q'):
