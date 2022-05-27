@@ -11,6 +11,7 @@ import torch
 from torch.utils.data import TensorDataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
 import tqdm
+from torchmetrics import Accuracy
 
 # Python imports
 from datetime import datetime
@@ -46,18 +47,19 @@ class Trainer:
 
         assert 0 <= acceptance_th <= 1
 
-        accuracy, loss = 0, 0
+        loss_gathered = 0
         train_data = self._train_data
         model = self._model
         loss_fn = self._loss_fn
         optim = self._optimizer
 
-        n_elems, n_batches = 0, 0 # Use element count to compute avg loss and accuracy
+        n_batches = 0 # Use element count to compute avg loss and accuracy
+
+        accuracy_counter = Accuracy()
 
         for i, data in enumerate(train_data):
             inputs, labels = data
             n_batches += 1
-            n_elems += inputs.shape[0]
 
             # eval inputs for each batch
             optim.zero_grad()
@@ -68,23 +70,24 @@ class Trainer:
             loss.backward()
             optim.step()
 
+            accuracy_counter.update(outputs, labels.argmax(1))
+
             # Collect metrics 
-            loss += loss.item()
-            accuracy += self._get_success_count(labels, outputs, acceptance_th)
+            loss_gathered += loss.item()
 
             # Log to torch logs if a writer is provided
             if tb_writer and i % 3 == 0:
-                loss_so_far = loss / n_elems
-                acc_so_far = accuracy / n_elems
+                loss_so_far = loss_gathered / n_batches
+                acc_so_far = accuracy_counter.compute()
                 tb_x = epoch_index * len(train_data) + i + 1
                 tb_writer.add_scalar('Loss/train', loss_so_far, tb_x) # Write loss in train to tensorboard logs
                 tb_writer.add_scalar('Acc/train', acc_so_far, tb_x) # Write loss in train to tensorboard logs
 
 
-        accuracy /= n_elems
-        loss /=  n_batches
+        accuracy = accuracy_counter.compute().item()
+        loss_gathered /=  n_batches
 
-        return (accuracy, loss)
+        return (accuracy, loss_gathered)
 
     def run_train(self, n_epochs : int, acceptance_th : float = 0.5):
         """Run a training process for the specified amount of epochs
@@ -108,34 +111,36 @@ class Trainer:
         best_loss = float('inf')
         best_acc = -1.
 
+        accuracy_counter = Accuracy()
+
         # Main training loop
-        for i in tqdm.tqdm(range(n_epochs)):
+        iter = tqdm.tqdm(range(n_epochs))
+        for i in iter:
 
             # Run a single train step
             model.train(True)
             avg_acc, avg_loss = self.train_one_epoch(i, tb_writer=writer, acceptance_th=acceptance_th)
             model.train(False)
 
-            tqdm.tqdm.write(f"Train Accuracy: {avg_acc} / Train Loss: {avg_loss}")
 
             # Compute validation metrics
-            n_elems, n_batches = 0, 0
+            n_batches = 0
             valid_acc = 0
             valid_loss = 0
             for (inputs, labels) in valid_data:
 
                 outputs = model(inputs)
 
-                valid_loss += loss_fn(outputs, labels).item()
-                valid_acc += self._get_success_count(labels, outputs, acceptance_th=acceptance_th)
+                accuracy_counter.update(outputs, labels.argmax(1))
 
-                n_elems += inputs.shape[0]
+                valid_loss += loss_fn(outputs, labels).item()
+
                 n_batches += 1
 
-            valid_acc /= n_elems
+            valid_acc = accuracy_counter.compute().item()
             valid_loss /= n_batches 
 
-            tqdm.tqdm.write(f"Validation Accuracy: {valid_acc} / Validation Loss: {avg_loss}")
+            iter.set_description(f"[Epoch: {i+1} / {n_epochs}] Train Acc: {round(avg_acc,4)} | Train Loss: {round(avg_loss,4)} | Val Acc: {round(valid_acc,4)} | Val Loss: {round(avg_loss,4)}")
 
             # Log to tensorboard
             writer.add_scalars('Training vs. Validation Loss',
