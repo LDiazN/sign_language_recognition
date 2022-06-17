@@ -241,7 +241,7 @@ class NumericDatasetClient:
         assert file_path.exists(), "Create row function assumes that the file does exists"
 
         data = video_converter.parse_video_from_file(str(file_path), sign.start_time, sign.end_time, display_video, sign.fps)
-        as_arrays = [d.concatenated for d in data]
+        as_arrays = [d.concatenated() for d in data]
 
         return np.array(as_arrays)
 

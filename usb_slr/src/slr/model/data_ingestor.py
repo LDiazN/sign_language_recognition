@@ -7,6 +7,7 @@ from tkinter import Frame
 
 from pandas import array
 from slr.data_processing.image_parser import PoseValues
+import torch
 from tensorflow.keras.utils import to_categorical # type: ignore
 from sklearn.model_selection import train_test_split
 
@@ -44,7 +45,10 @@ class DataIngestor:
             frame_limit     : Optional[int] = None, 
             video_limit     : Optional[int] = None, 
             padding_func    : Optional[ Callable[ [np.ndarray],np.ndarray] ] = None ,
-            normalize_location : bool = False
+            normalize_location : bool = False,
+            reduce_labels : bool = False,
+            ignore_face : bool = False
+
         ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
             Create the data to be feeded into the model
@@ -54,6 +58,9 @@ class DataIngestor:
             * video_limit : limit of videos for training data
             * padding_func : padding function to use
             * normalize_location : `bool` = if this data should be location-normalized
+            * reduce_labels : `bool` = if should reduce the labels vector to the ones just in the resulting dataset. 
+                For example, if the dataset has 1000 labels, and the resulting dataset uses only 10, 
+                the returning label vector will have only 10 columns
 
             # Return
             (Training dataset, test dataset, training labels, test labels)
@@ -66,11 +73,12 @@ class DataIngestor:
         # Retrieve data 
         videos, labels = [], []
         for idx, (features, description) in enumerate( video_data ): # TODO use training data as well, not only test data
-            logging.warning("Generating data for video %d", idx)
             
             # Skip this row if does not matches predicate
             if predicate and not predicate(features, description):
                 continue
+
+            logging.warning("Generating data for video %d", idx)
 
             # Get the feature shape
             rows, _ = features.shape
@@ -80,12 +88,12 @@ class DataIngestor:
                 for (i,row) in enumerate(features):
                     pose_value = PoseValues.from_array(row)
                     pose_value.normalize_location()
-                    features[i] = pose_value.concatenated
+                    features[i] = pose_value.concatenated(exclude_face=ignore_face)
 
             if rows < FRAME_CAP:
                 # Configurable padding function
                 transf   =  FeatureTransformer(FRAME_CAP)
-                features = transf.pad_with_zeroes(transf, features) if padding_func is None else padding_func(transf, features)
+                features = transf.pad_with_zeroes(transf, features) if padding_func is None else padding_func(transf, features) # tpye: ignore
 
             elif rows > FRAME_CAP: 
                 # Make it smaller
@@ -104,9 +112,23 @@ class DataIngestor:
         # assign labels
         Y = to_categorical(labels).astype(int)
 
+        if reduce_labels:
+            Y = self._reduce_labels(Y)
+
         X_TRAIN, X_TEST, Y_TRAIN, Y_TEST = train_test_split(X, Y, test_size=0.2)
         return X_TRAIN, X_TEST, Y_TRAIN, Y_TEST
 
+    def _reduce_labels(self, labels : np.ndarray) -> np.ndarray:
+        actual_labels = labels.argmax(1)
+        labelset = {l for l in actual_labels}
+        labelmap = { l: i for (i, l) in enumerate(labelset)}
+
+        new_labels = np.zeros((labels.shape[0], len(labelset)))
+
+        for (i, l) in enumerate(actual_labels):
+            new_labels[i, labelmap[l]] = 1
+
+        return new_labels
 
 # TODO, include simmetric padding, and a better way to set padding up
 class FeatureTransformer:
