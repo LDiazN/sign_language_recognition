@@ -100,6 +100,8 @@ class GraphConvolution(nn.Module):
 
         # Set up parameters
         self._convolution_parameters = torch.nn.parameter.Parameter(torch.ones((feature_dim, self._output_size)))
+        self.reset_parameters()
+
 
     def forward(self, adjacency_matrix : torch.Tensor, node_features : torch.Tensor) -> torch.Tensor:
         """Run a graph convolution operation over a graph
@@ -142,6 +144,14 @@ class GraphConvolution(nn.Module):
 
         return torch.inverse(D)
 
+    def reset_parameters(self):
+        """
+        Code stolen from https://towardsdatascience.com/how-to-build-your-own-pytorch-neural-network-layer-from-scratch-842144d623f6
+        to improve weight initialization
+        """        
+        import math
+        torch.nn.init.kaiming_uniform_(self._convolution_parameters, a=math.sqrt(5))
+
 class STGCNModel(nn.Module):
     """Action recognition model based on the heuristic from https://www.youtube.com/watch?v=RRMU8kJH60Q
     
@@ -169,6 +179,8 @@ class STGCNModel(nn.Module):
         self._linear1 = torch.nn.Linear(8 * n_nodes * n_frames, 64)
         self._linear2 = torch.nn.Linear(64, n_classes)
 
+   
+
     def forward(self, matrices_and_features : Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
         """Run the model to try to get a prediction
 
@@ -189,16 +201,20 @@ class STGCNModel(nn.Module):
         assert feature_matrix.shape == expected_feature_matrix_size, f"Unmatching node feature matrix size. Expected size {expected_feature_matrix_size}"
 
         # Model evaluation
+
+        # Eval lstm model: Each graph feature list is turned into a single vector, and therefore the sequence of graphs is turned into a 
+        # a sequence of vectors, which is analyzed by the temporal component
         new_feats = feature_matrix.reshape((batch_size, self._n_frames, self._n_nodes * self._node_feature_dim))
         (new_feats, _) = self._temporal_block(new_feats)
         new_feats = new_feats.reshape((batch_size, self._n_frames, self._n_nodes, self._node_feature_dim))
 
+
+        # Run a gcn model over 
         new_rows = torch.zeros((batch_size, self._n_frames, self._n_nodes, 8))
         for (i, (sign, mat)) in enumerate(zip(new_feats, adjacency_matrices)):
             new_rows[i] = self._spatial_block(mat.repeat((self._n_frames, 1,1)), sign)
             
-
-        # TODO optionally test with another temporal layer
+        # Classification head
         new_feats = torch.flatten(new_rows, start_dim=1)
         new_feats = self._linear1(new_feats)
         new_feats = self._linear2(new_feats)
