@@ -18,6 +18,7 @@ from mediapipe.python.solutions.face_mesh_connections import FACEMESH_CONTOURS
 from mediapipe.python.solutions.hands_connections import HAND_CONNECTIONS
 from mediapipe.python.solutions import drawing_utils as mp_drawing
 import dgl
+from typing import Optional
 import torch
 
 class EdgeType(enum.Enum):
@@ -126,6 +127,107 @@ class PoseGraph:
             int: amount of joints expected for the pose graph
         """
         return 543 - int(not include_face) * 1404//3
+
+    def as_cv_img(self, width : int = 512, height : int = 512, show_edges : bool = False, joint_radius_px : int = 3, bounding_box : Optional[Tuple[float, float, float, float]] = None) -> np.ndarray:
+        """Draw this graph in a CV image
+
+        Returns:
+            np.array: Resulting cv image
+        """
+
+        JOINT_COLOR = (1,0,0)
+        EDGE_COLOR = (0,1,0)
+
+
+        if bounding_box:
+            min_x, max_x, min_y, max_y = bounding_box
+        else: 
+            # Find min and max values for x and y in the set of points
+            min_x = float("inf")
+            max_x = float("-inf")
+
+            min_y = float("inf")
+            max_y = float("-inf")
+            for j in self.joint_data:
+                min_x = min(min_x, j.x)
+                max_x = max(max_x, j.x)
+                min_y = min(min_y, j.y)
+                max_y = max(max_y, j.y)
+
+        # Get aspect ratio
+        original_h = max_y - min_y
+        original_w = max_x - min_x
+        aspect_ratio = original_h/original_w
+
+
+        # Transform point to the correct coordinate system
+        def to_img(x : float, y : float) -> Tuple[float, float]:
+            # TODO maybe check for aspect ratio
+            return (
+                int((x - min_x)/(max_x - min_x) * width), 
+                int((y - min_y)/(max_y - min_y) * height)
+                )
+
+        # Create black background
+        img = np.zeros((width, height,3))
+
+        # Draw points in image
+        for j in self.joint_data:
+            pos_img = to_img(j.x, j.y)
+            cv2.circle(img, pos_img, joint_radius_px, JOINT_COLOR, -1)
+
+
+        if show_edges:
+            for edge in self.edges:
+                p1 = self.joint_data[edge.start]
+                p2 = self.joint_data[edge.end]
+
+                p1_img = to_img(p1.x, p1.y)
+                p2_img = to_img(p2.x, p2.y)
+
+                cv2.line(img, p1_img, p2_img, EDGE_COLOR, 2)
+
+        return img
+
+    @staticmethod
+    def as_trajectory_cv_img(graphs : list, width : int = 512, height : int = 512, show_edges : bool = False, joint_radius_px : int = 3) -> np.ndarray:
+        """Create an image with all frames of the given graph, such that earlier frames are darker than newer frames
+
+        Args:
+            graphs (list): List of graph to render
+
+        Returns:
+            np.ndarray: a cv2 image
+        """
+
+        pose_graphs : List[PoseGraph] = graphs
+
+        # fing overall bounding box
+        min_x, max_x = float("inf"), float("-inf")
+        min_y, max_y = float("inf"), float("-inf")
+
+        for g in pose_graphs:
+            for j in g.joint_data:
+                min_x = min(j.x, min_x)
+                max_x = max(j.x, max_x)
+
+                min_y = min(j.y, min_y)
+                max_y = max(j.y, max_y)
+                
+        # Create image for each graph
+        imgs = (g.as_cv_img(width, height, show_edges, joint_radius_px, bounding_box=(min_x, max_x, min_y, max_y)) for g in pose_graphs)
+
+        # Compute color incresing for each graph 
+        n_frames = len(pose_graphs)
+        increase = 1.0 / n_frames
+
+        # Sum each img 
+        result = np.zeros((width, height, 3))
+        for (i, img) in enumerate(imgs):
+            result += increase * (i + 1) *  img
+
+        # Return img with all frames
+        return result
 
 @dataclasses.dataclass
 class PoseValues:

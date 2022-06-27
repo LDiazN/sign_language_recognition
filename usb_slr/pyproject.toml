@@ -39,8 +39,3 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 slr = "slr.main:usb_slr"
-
-[[tool.poetry.source]]
-name = "dgl"
-url = "https://data.dgl.ai/wheels/repo.html"
-secondary = true
