@@ -142,17 +142,7 @@ class PoseGraph:
         if bounding_box:
             min_x, max_x, min_y, max_y = bounding_box
         else: 
-            # Find min and max values for x and y in the set of points
-            min_x = float("inf")
-            max_x = float("-inf")
-
-            min_y = float("inf")
-            max_y = float("-inf")
-            for j in self.joint_data:
-                min_x = min(min_x, j.x)
-                max_x = max(max_x, j.x)
-                min_y = min(min_y, j.y)
-                max_y = max(max_y, j.y)
+            min_x, max_x, min_y, max_y = PoseGraph._bounding_box_from_graph(self)
 
         # Get aspect ratio
         original_h = max_y - min_y
@@ -173,6 +163,8 @@ class PoseGraph:
 
         # Draw points in image
         for j in self.joint_data:
+            if not j.visibility:
+                continue
             pos_img = to_img(j.x, j.y)
             cv2.circle(img, pos_img, joint_radius_px, JOINT_COLOR, -1)
 
@@ -181,6 +173,9 @@ class PoseGraph:
             for edge in self.edges:
                 p1 = self.joint_data[edge.start]
                 p2 = self.joint_data[edge.end]
+
+                if not p1.visibility or not p2.visibility:
+                    continue
 
                 p1_img = to_img(p1.x, p1.y)
                 p2_img = to_img(p2.x, p2.y)
@@ -203,16 +198,7 @@ class PoseGraph:
         pose_graphs : List[PoseGraph] = graphs
 
         # fing overall bounding box
-        min_x, max_x = float("inf"), float("-inf")
-        min_y, max_y = float("inf"), float("-inf")
-
-        for g in pose_graphs:
-            for j in g.joint_data:
-                min_x = min(j.x, min_x)
-                max_x = max(j.x, max_x)
-
-                min_y = min(j.y, min_y)
-                max_y = max(j.y, max_y)
+        min_x, max_x, min_y, max_y = PoseGraph._bounding_box_from_sign(pose_graphs)
                 
         # Create image for each graph
         imgs = (g.as_cv_img(width, height, show_edges, joint_radius_px, bounding_box=(min_x, max_x, min_y, max_y)) for g in pose_graphs)
@@ -228,6 +214,82 @@ class PoseGraph:
 
         # Return img with all frames
         return result
+
+    @staticmethod
+    def sign_to_imgs(sign : list, width : int = 512, height : int = 512, show_edges : bool = False, joint_radius_px : int = 3) -> List[np.ndarray]:
+        """Create a list of graph images from the given sign (list of graphs) 
+
+        Args:
+            sign (list): list of graphs specifying a sign
+            width (int, optional): Width of resulting images. Defaults to 512.
+            height (int, optional): Height of resulting images, in pixels. Defaults to 512.
+            show_edges (bool, optional): If should show edges in each image. Defaults to False.
+            joint_radius_px (int, optional): Radius for joints in the image. Defaults to 3.
+
+        Returns:
+            List[np.ndarray]: List of images. Will all be normalized to the same bounding box1
+        """
+        sign_graphs : List[PoseGraph] = sign
+        bb = PoseGraph._bounding_box_from_sign(sign_graphs)
+        return [g.as_cv_img(width=width, height=height, show_edges=show_edges, joint_radius_px=joint_radius_px, bounding_box=bb) for g in sign_graphs]
+
+    @staticmethod
+    def _bounding_box_from_graph(graph) -> Tuple[float, float, float, float]:
+        """Compute bounding box for a given graph. Is just a bounding box that contains every joint
+
+        Args:
+            graph (PoseGraph): Graph where the joints will be taken from
+
+        Returns:
+            Tuple[float, float, float, float]: min_x, max_x, min_y, max_y
+        """
+
+        pose_graph : PoseGraph = graph
+
+        min_x = float("inf")
+        max_x = float("-inf")
+
+        min_y = float("inf")
+        max_y = float("-inf")
+        for j in pose_graph.joint_data:
+
+            # Ignore non visible joints
+            if not j.visibility:
+                continue
+            
+            min_x = min(min_x, j.x)
+            max_x = max(max_x, j.x)
+            min_y = min(min_y, j.y)
+            max_y = max(max_y, j.y)
+
+        return min_x, max_x, min_y, max_y
+    
+    @staticmethod
+    def _bounding_box_from_sign(sign : list) -> Tuple[float, float, float, float]:
+        """Returna bounding box containing all the joints in all signs
+
+        Args:
+            sign (List[PoseGraph]): List of PoseGraph defining a graph
+
+        Returns:
+            Tuple[float, float, float, float]: min_x, max_x, min_y, max_y
+        """
+        sign_graphs : List[PoseGraph] = sign
+
+        # Generate bounding boxes for each graph
+        bounding_boxs = (PoseGraph._bounding_box_from_graph(g) for g in sign_graphs)
+
+        min_x, max_x = float("inf"), float("-inf")
+        min_y, max_y = float("inf"), float("-inf")
+
+        for (new_min_x, new_max_x, new_min_y, new_max_y) in bounding_boxs:
+            min_x = min(min_x, new_min_x)
+            max_x = max(max_x, new_max_x)
+
+            min_y = min(min_y, new_min_y)
+            max_y = max(max_y, new_max_y)
+
+        return min_x, max_x, min_y, max_y
 
 @dataclasses.dataclass
 class PoseValues:
