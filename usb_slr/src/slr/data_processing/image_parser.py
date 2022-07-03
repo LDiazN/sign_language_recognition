@@ -3,7 +3,8 @@
 """
 
 # Python imports
-from typing import Iterable, List, NamedTuple, Tuple
+from ntpath import join
+from typing import Callable, Iterable, List, NamedTuple, Tuple, Union
 import dataclasses
 from typing_extensions import Self
 import enum
@@ -19,6 +20,7 @@ from mediapipe.python.solutions.hands_connections import HAND_CONNECTIONS
 from mediapipe.python.solutions import drawing_utils as mp_drawing
 import dgl
 from typing import Optional
+from pyparsing import Opt
 import torch
 
 class EdgeType(enum.Enum):
@@ -128,7 +130,15 @@ class PoseGraph:
         """
         return 543 - int(not include_face) * 1404//3
 
-    def as_cv_img(self, width : int = 512, height : int = 512, show_edges : bool = False, joint_radius_px : int = 3, bounding_box : Optional[Tuple[float, float, float, float]] = None) -> np.ndarray:
+    def as_cv_img(self, 
+        width : int = 512, 
+        height : int = 512, 
+        show_edges : bool = False, 
+        joint_radius_px : int = 3, 
+        bounding_box : Optional[Tuple[float, float, float, float]] = None,
+        joint_color : Optional[Tuple[float, float, float]] = None,
+        joint_color_intensity : Optional[np.ndarray] = None
+        ) -> np.ndarray:
         """Draw this graph in a CV image
 
         Returns:
@@ -138,6 +148,10 @@ class PoseGraph:
         JOINT_COLOR = (1,0,0)
         EDGE_COLOR = (0,1,0)
 
+        joint_color = np.array(joint_color or JOINT_COLOR)
+
+        if joint_color_intensity is None:
+            joint_color_intensity = np.ones(len(self.joint_data))
 
         if bounding_box:
             min_x, max_x, min_y, max_y = bounding_box
@@ -162,11 +176,11 @@ class PoseGraph:
         img = np.zeros((width, height,3))
 
         # Draw points in image
-        for j in self.joint_data:
+        for (j, intensity) in zip(self.joint_data, joint_color_intensity):
             if not j.visibility:
                 continue
             pos_img = to_img(j.x, j.y)
-            cv2.circle(img, pos_img, joint_radius_px, JOINT_COLOR, -1)
+            cv2.circle(img, pos_img, joint_radius_px, intensity * joint_color, -1)
 
 
         if show_edges:
@@ -290,6 +304,123 @@ class PoseGraph:
             max_y = max(max_y, new_max_y)
 
         return min_x, max_x, min_y, max_y
+
+    @staticmethod
+    def _mean_graph(sign : list):
+        """Returns the mean graph of a sign: A graph such that the position of every joint is the average between the non-zero positions in a sign (seq of graphs)
+
+        Args:
+            sign (list): List of PoseGraphs defining a sign
+
+        Returns:
+            PoseGraph: Mean pose of a sign 
+        """
+
+        assert sign != [], "mean graph expects to be at the least one frame"
+
+        mean_joints = PoseGraph.mean_positions(sign)
+        graph = sign[0]
+
+        # Update with new mean values
+        for (j, r) in zip(graph.joint_data, mean_joints):
+            j.x, j.y = r
+
+        return graph
+
+    @staticmethod
+    def _non_zero_count(sign : list) -> np.ndarray:
+        """Count how many non zero joints there is in each joint along a sign
+
+        Args:
+            sign (list): list of pose graph defining a sign
+
+        Returns:
+            np.ndarray: variance array per joint
+        """
+        non_zero_count = np.zeros((len(sign[0].joint_data), 2))
+
+        for g in sign:
+            # Build tensor of joints with sum of coordinates
+            joint_tensor = np.array([[j.x, j.y] for j in g.joint_data])
+
+            # Add non-zeros to compute final division
+            non_zero_count += (joint_tensor != [0,0]).astype(int)
+
+        return non_zero_count
+
+
+    @staticmethod
+    def mean_positions(sign : list) -> np.ndarray:
+        """
+            Compute mean positions of joints in sign
+        """
+        mean_joints = np.zeros((len(sign[0].joint_data), 2))
+        # Use non zero count to ignore zeroed joints
+        non_zero_count = PoseGraph._non_zero_count(sign)
+
+        for g in sign:
+            # Build tensor of joints with sum of coordinates
+            joint_tensor = np.array([[j.x, j.y] for j in g.joint_data])
+
+            # Sum values of joints to mean joints
+            mean_joints += joint_tensor
+
+        # Update joint values in this graph to mean values. Just to recycle edge data
+        return mean_joints / non_zero_count
+
+
+    @staticmethod
+    def joint_variance(sign : list) -> np.ndarray:
+        """Compute variance of joint positions in a given sign
+
+        Args:
+            sign (list): list of graphs defining frames in a sign
+
+        Returns:
+            np.ndarray: variance value per joint
+        """
+
+        assert sign 
+        graph_list : List[PoseGraph] = sign
+
+        mean_joints = PoseGraph.mean_positions(sign)
+        non_zero_count = PoseGraph._non_zero_count(sign)
+
+        # compute sum of (X_i - mean) ^ 2
+        result = np.zeros_like(mean_joints)
+        for g in graph_list:
+
+            # Build joint positions array
+            joints = np.array([[j.x, j.y] for j in g.joint_data])
+            result += (joints - mean_joints) ** 2 
+
+        non_zero_count = non_zero_count - 1
+
+        return result / non_zero_count
+
+    @staticmethod
+    def variance_graph(sign : list) -> np.ndarray:
+        """ Create a variance graph where the positions of nodes are mean positions, and 
+            its color represents how much variance it has relative to other nodes
+
+        Args:
+            sign (list): A sign defined by a list of graphs
+
+        Returns:
+            np.ndarray: A CV image encoded as np array
+        """
+
+        mean_graph : PoseGraph = PoseGraph._mean_graph(sign)
+        variance = np.mean(PoseGraph.joint_variance(sign), axis=1) 
+
+        # Normalice variance with min max so we can use that value as intensity
+        mini = np.min(variance)
+        maxi = np.max(variance)
+        variance = (1/(maxi - mini)) * (variance - mini)
+
+        ORANGE = (0.0,165.0 / 255.0, 255.0 / 255.0)
+
+        return mean_graph.as_cv_img(show_edges= True, joint_radius_px=5, joint_color=ORANGE, joint_color_intensity=variance)
 
 @dataclasses.dataclass
 class PoseValues:
