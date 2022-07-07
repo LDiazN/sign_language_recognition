@@ -8,6 +8,7 @@
 """
 # Python imports
 from typing import List, Tuple, Optional
+from matplotlib.pyplot import axis
 
 # Local imports
 from slr.data_processing.image_parser import PoseValues, JointData, PoseGraph
@@ -20,15 +21,16 @@ class DataPreprocessor:
     """Convert the data we extract from videos to a format that is required for the action recognition model
     """
 
-    def process(self, sign : List[PoseValues], include_face : bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
+    def process(self, sign : List[PoseValues], include_face : bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Convert from data inside a pose value to a torch tensor
 
         Args:
             data (PoseValues): pose skeleton description
 
         Returns:
-            Tuple[torch.Tensor, torch.Tensor]: Adjacency matrix, and feature matrix, with features for each node.
-            If n = len(sign), expected size for adjacency matrix is (n,n) and feature size is [n, n_nodes, 2]
+            Tuple[torch.Tensor, torch.Tensor]: Adjacency matrix, feature matrix  with features for each node, and normalized variance tensor.
+            If n = len(sign), expected size for adjacency matrix is (n,n) and feature size is [n, n_nodes, 2] and normalized variance tensor
+            will have shape [n_nodes, 2]
         """
 
         assert len(sign) > 0, "Can't compute anything on empty sign"
@@ -44,16 +46,25 @@ class DataPreprocessor:
             result[edge.start, edge.end] = 1
             result[edge.end, edge.start] = 1 # Undirected graph
 
-        return result, joint_data
+        # Create variance Matrix 
+        vari = torch.from_numpy(PoseGraph.joint_variance(graphs)).cuda() 
 
-    def process_many(self, signs : List[List[PoseValues]], include_face : bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
+        # Normalize variance with minmax
+        mini, _ = vari.min(axis=0)
+        maxi, _ = vari.max(axis=0)    
+
+        vari = (1/(maxi - mini)) * (vari - mini)
+
+        return result, joint_data, vari
+
+    def process_many(self, signs : List[List[PoseValues]], include_face : bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Process many signs at the same time 
 
         Parameters:
             signs = List of signs to convert into tensors
             include_face : bool = If should include face joints. Defaults to False
         Returns:
-            Two tensorws with the tensors corresponding to the adjacency matrix and node features of every given sign concatenated
+            Two tensorws with the tensors corresponding to the adjacency matrix, node features and variance tensor of every given sign concatenated
             to form a bulk
         """
         assert len(signs) > 0, "There should be at the least one sign"
@@ -62,18 +73,18 @@ class DataPreprocessor:
 
         adj_shape = sign_tensors[0][0].shape
         features_shape = sign_tensors[0][1].shape
+        variance_shape = sign_tensors[0][1].shape
 
-        new_shape = (len(sign_tensors), *adj_shape)
         adj_result = torch.zeros((len(sign_tensors), *adj_shape))
         features_result = torch.zeros((len(sign_tensors), *features_shape))
+        variance_result = torch.zeros((len(sign_tensors), *variance_shape))
 
-        torch.cat([m.reshape((1,*m.shape)) for (m, _) in sign_tensors], out=adj_result)
-        torch.cat([j.reshape((1,*j.shape)) for (_, j) in sign_tensors], out=features_result)
+        torch.cat([m.reshape((1,*m.shape)) for (m, _, _) in sign_tensors], out=adj_result)
+        torch.cat([j.reshape((1,*j.shape)) for (_, j, _) in sign_tensors], out=features_result)
+        torch.cat([v.reshape((1,*v.shape)) for (_, _, v) in sign_tensors], out=variance_result)
         
 
-        return adj_result, features_result
-
-
+        return adj_result, features_result, variance_result
 
 
 class GraphConvolution(nn.Module):
@@ -107,17 +118,20 @@ class GraphConvolution(nn.Module):
         """Run a graph convolution operation over a graph
 
         Args:
-            adjacency_matrix (torch.Tensor): Adjacency matrix describing graph
-            node_features (torch.Tensor): Features for each node
+            adjacency_matrix (torch.Tensor): Adjacency matrix describing graph. Size: (batch_size, n_nodes, n_nodes)
+            node_features (torch.Tensor): Features for each node. Size: (batch_size, n_nodes, node_feature_dim)
 
         Returns:
             torch.Tensor: New node features, has shape of (batch_size, n_nodes, output_size)
         """
-        assert adjacency_matrix.shape == (self._batch_size, self._n_nodes, self._n_nodes), \
-                f"The provided matrix size does not match with the expected size ({self._batch_size}, {self._n_nodes}, {self._n_nodes})"
 
-        assert node_features.shape == (self._batch_size, self._n_nodes, self._feature_dim), \
-                f"The provided node features don't match expected size ({self._batch_size}, {self._n_nodes}, {self._feature_dim})"
+        batch_size, _, _ = adjacency_matrix.shape
+
+        assert adjacency_matrix.shape == (batch_size, self._n_nodes, self._n_nodes), \
+                f"The provided matrix size does not match with the expected size ({batch_size}, {self._n_nodes}, {self._n_nodes})"
+
+        assert node_features.shape == (batch_size, self._n_nodes, self._feature_dim), \
+                f"The provided node features don't match expected size ({batch_size}, {self._n_nodes}, {self._feature_dim})"
 
         self_looped_matrix = adjacency_matrix + torch.eye(self._n_nodes)
         normalization_matrix = self._generate_normalization_matrix(self_looped_matrix)
@@ -163,7 +177,7 @@ class STGCNModel(nn.Module):
         Linear blocks (classification)
     """
 
-    def __init__(self, batch_size : int, node_feature_dim : int, n_nodes : int, n_frames : int, n_classes : int) -> None:
+    def __init__(self, batch_size : int, node_feature_dim : int, n_nodes : int, n_frames : int, n_classes : int, convolution_out_size : int = 8) -> None:
         super().__init__()
 
         # Network config
@@ -172,16 +186,59 @@ class STGCNModel(nn.Module):
         self._n_nodes = n_nodes
         self._n_frames = n_frames
         self._n_classes = n_classes
+        self._convolution_out_size = convolution_out_size
 
         # Config parameters:
-        self._temporal_block = torch.nn.LSTM(node_feature_dim * n_nodes, n_nodes * node_feature_dim, batch_first=True) # ???
-        self._spatial_block = GraphConvolution(n_nodes, feature_dim=node_feature_dim, batch_size=n_frames, output_size=8)
-        self._linear1 = torch.nn.Linear(8 * n_nodes * n_frames, 64)
+        #self._temporal_block = torch.nn.LSTM(node_feature_dim * n_nodes, n_nodes * node_feature_dim, batch_first=True, num_layers=16) # ???
+        self._temporal_block = torch.nn.MultiheadAttention(2 * n_nodes, num_heads=1, batch_first=True, kdim=2*n_nodes, vdim=2*n_nodes) # ???
+        self._spatial_block = GraphConvolution(n_nodes, feature_dim=node_feature_dim, batch_size=batch_size, output_size=convolution_out_size)
+        self._linear1 = torch.nn.Linear(convolution_out_size * n_nodes , 64)
         self._linear2 = torch.nn.Linear(64, n_classes)
-
+        self._batch_norm = torch.nn.BatchNorm2d(node_feature_dim)
    
 
-    def forward(self, matrices_and_features : Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+    def forward(self, matrices_and_features_and_variance : Tuple[torch.Tensor, torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        adjacency_matrices, feature_matrix, variance_matrix = matrices_and_features_and_variance
+        
+        batch_size, _, _ = adjacency_matrices.shape
+
+        # Batch normalization layer
+        feature_matrix = feature_matrix.transpose(1,3)
+        feature_matrix = self._batch_norm(feature_matrix)
+        feature_matrix = feature_matrix.transpose(1,3)
+
+        # Consistency check
+        expected_adjacency_matrix_size = (batch_size, self._n_nodes, self._n_nodes)
+        assert adjacency_matrices.shape == expected_adjacency_matrix_size, \
+        f"Unmatching adjacency matrix size. Expected size: {(batch_size, self._n_nodes, self._n_nodes)}"
+
+        expected_feature_matrix_size = (batch_size, self._n_frames, self._n_nodes, self._node_feature_dim)
+        assert feature_matrix.shape == expected_feature_matrix_size, f"Unmatching node feature matrix size. Expected size {expected_feature_matrix_size}"
+
+        # model evaluation 
+        #   Eval attention layer
+        key = feature_matrix.reshape((batch_size, self._n_frames, 2 * self._n_nodes))
+        query=variance_matrix.reshape((batch_size, 1, 2 * self._n_nodes))
+        y,_ = self._temporal_block(
+            query, # Query
+            key, # key
+            key, # value
+            need_weights = False
+            )
+        y = y.reshape(batch_size, self._n_nodes, self._node_feature_dim)
+
+        y = self._spatial_block(adjacency_matrices, y)
+
+        y = torch.flatten(y, start_dim=1)
+        y = self._linear1(y)
+        y = self._linear2(y)
+
+        return torch.softmax(y, 1)
+
+        pass
+
+
+    def _old_forward(self, matrices_and_features_and_variance : Tuple[torch.Tensor, torch.Tensor, torch.Tensor]) -> torch.Tensor:
         """Run the model to try to get a prediction
 
         Args:
@@ -189,8 +246,14 @@ class STGCNModel(nn.Module):
             feature_matrix (torch.Tensor): feature for each node in each given matrix. Expected size: (batch_size, n_frames, n_nodes, node_feature_dim)
         """
 
-        adjacency_matrices, feature_matrix = matrices_and_features
+        adjacency_matrices, feature_matrix, variance_matrix = matrices_and_features_and_variance
+        
         batch_size, _, _ = adjacency_matrices.shape
+
+        # Batch normalization layer
+        feature_matrix = feature_matrix.transpose(1,3)
+        feature_matrix = self._batch_norm(feature_matrix)
+        feature_matrix = feature_matrix.transpose(1,3)
 
         # Consistency check
         expected_adjacency_matrix_size = (batch_size, self._n_nodes, self._n_nodes)
@@ -206,11 +269,12 @@ class STGCNModel(nn.Module):
         # a sequence of vectors, which is analyzed by the temporal component
         new_feats = feature_matrix.reshape((batch_size, self._n_frames, self._n_nodes * self._node_feature_dim))
         (new_feats, _) = self._temporal_block(new_feats)
+        new_feats = torch.relu(new_feats)
         new_feats = new_feats.reshape((batch_size, self._n_frames, self._n_nodes, self._node_feature_dim))
 
 
         # Run a gcn model over 
-        new_rows = torch.zeros((batch_size, self._n_frames, self._n_nodes, 8))
+        new_rows = torch.zeros((batch_size, self._n_frames, self._n_nodes, self._convolution_out_size))
         for (i, (sign, mat)) in enumerate(zip(new_feats, adjacency_matrices)):
             new_rows[i] = self._spatial_block(mat.repeat((self._n_frames, 1,1)), sign)
             

@@ -47,7 +47,8 @@ class DataIngestor:
             padding_func    : Optional[ Callable[ [np.ndarray],np.ndarray] ] = None ,
             normalize_location : bool = False,
             reduce_labels : bool = False,
-            ignore_face : bool = False
+            ignore_face : bool = False,
+            samples_limit : Optional[int] = None
 
         ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
@@ -72,11 +73,18 @@ class DataIngestor:
 
         # Retrieve data 
         videos, labels = [], []
-        for idx, (features, description) in enumerate( video_data ): # TODO use training data as well, not only test data
+        for idx, (features, description) in enumerate( video_data ): 
             
             # Skip this row if does not matches predicate
             if predicate and not predicate(features, description):
                 continue
+            if features.shape == (0,):
+                print(f"[Warning] There's a sign description with no signs: {description.file}")
+                continue
+
+            # Check if enough samples are already taken
+            if samples_limit and idx >= samples_limit:
+                break
 
             logging.warning("Generating data for video %d", idx)
 
@@ -93,7 +101,7 @@ class DataIngestor:
             if rows < FRAME_CAP:
                 # Configurable padding function
                 transf   =  FeatureTransformer(FRAME_CAP)
-                features = transf.pad_with_zeroes(transf, features) if padding_func is None else padding_func(transf, features) # tpye: ignore
+                features = transf.pad_with_zeroes(features) if padding_func is None else padding_func(transf, features) # tpye: ignore
 
             elif rows > FRAME_CAP: 
                 # Make it smaller

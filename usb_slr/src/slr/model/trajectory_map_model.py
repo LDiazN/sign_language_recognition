@@ -109,8 +109,8 @@ class TMCNNModel(nn.Module): # Trajectory Map CNN Model
         self._cnnf = nn.Conv2d(1, 4, 4)
         self._spatial_pooling = nn.MaxPool2d(4) # Test with more types of pooling
         self._cnnr = nn.Conv2d(4, 4, 4)
-        self._linear1 = nn.Linear(4*60*60, 64   )
-        self._linear2 = nn.Linear(64    , num_classes)
+        self._linear1 = nn.Linear(4*60*60, 64)
+        self._linear2 = nn.Linear(64, num_classes)
 
 
     def forward(self, batch_of_images : torch.Tensor) -> torch.Tensor:
@@ -119,10 +119,13 @@ class TMCNNModel(nn.Module): # Trajectory Map CNN Model
         batch_of_images = batch_of_images.reshape((batch_size, 1, w, h))
 
         y = self._cnnf(batch_of_images)
+        y = torch.tanh(y)
         y = self._spatial_pooling(y)
         y = self._cnnr(y)
+        y = torch.tanh(y)
         y = torch.flatten(y, 1)
         y = self._linear1(y)
+        y = torch.tanh(y)
         y = self._linear2(y)
 
         return torch.softmax(y, 1)

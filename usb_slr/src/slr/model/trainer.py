@@ -25,12 +25,13 @@ class Trainer:
         data as input.
     """
 
-    def __init__(self, model : nn.Module, train_data : DataLoader, valid_data : DataLoader, loss_fn : nn.CrossEntropyLoss = nn.CrossEntropyLoss(), optimizer : Optional[torch.optim.Optimizer] = None):
+    def __init__(self, model : nn.Module, train_data : DataLoader, valid_data : DataLoader, loss_fn : nn.CrossEntropyLoss = nn.CrossEntropyLoss(), optimizer : Optional[torch.optim.Optimizer] = None, experiment_name : str = "sign_lang_recognition"):
         self._model = model
         self._train_data = train_data
         self._valid_data = valid_data
         self._loss_fn = loss_fn
         self._optimizer = optimizer or torch.optim.Adam(model.parameters(), lr=0.0005, betas=(0.9,0.999), amsgrad=False)
+        self._experiment_name = experiment_name
 
     def train_one_epoch(self, epoch_index : int, acceptance_th : float = 0.5, tb_writer : Optional[SummaryWriter] = None ) -> Tuple[float, float]:
         """  Perform training for a single epoch, and return loss and accuracy 
@@ -77,7 +78,7 @@ class Trainer:
 
             # Log to torch logs if a writer is provided
             if tb_writer and i % 3 == 0:
-                loss_so_far = loss_gathered / n_batches
+                loss_so_far = float(loss_gathered / n_batches)
                 acc_so_far = accuracy_counter.compute()
                 tb_x = epoch_index * len(train_data) + i + 1
                 tb_writer.add_scalar('Loss/train', loss_so_far, tb_x) # Write loss in train to tensorboard logs
@@ -105,7 +106,7 @@ class Trainer:
         valid_data = self._valid_data
 
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        writer = SummaryWriter('runs/sign_lang_recognition{}'.format(timestamp))
+        writer = SummaryWriter('runs/{}{}'.format(self._experiment_name, timestamp))
 
         # Keep track of best metrics
         best_loss = float('inf')
@@ -115,6 +116,7 @@ class Trainer:
 
         # Main training loop
         iter = tqdm.tqdm(range(n_epochs))
+        timer = ScopedTimer("Trainning")
         for i in iter:
 
             # Run a single train step
@@ -127,6 +129,7 @@ class Trainer:
             n_batches = 0
             valid_acc = 0
             valid_loss = 0
+
             for (inputs, labels) in valid_data:
 
                 outputs = model(inputs)
@@ -157,6 +160,7 @@ class Trainer:
             best_loss = min(best_loss, valid_loss)
             # TODO save to disk the best model
 
+        timer.stop()
         print(f"Training finished, best loss on validation: {best_loss}, best accuracy on validation {best_acc}")
 
 
@@ -178,3 +182,47 @@ class Trainer:
         actual_labels = labels.argmax(1)
 
         return int((pred_labels == actual_labels).float().sum().item())
+
+class ScopedTimer:
+    """Simple timer that will count how much time is spend in the function where it's created
+    """
+
+    def __init__(self, timer_name : str) -> None:
+        self._timer_name = timer_name
+        self._start = datetime.now()
+        self._running = True
+
+    def stop(self) -> float:
+        """Stop timer and return elapsed time
+
+        Returns:
+            float: Elapsed time in milliseconds (ms). -1 if already stopeed
+        """
+
+        if not self._running:
+            return -1
+
+
+        self._running = False
+        self._end = datetime.now()
+
+        time_ellapsed = self._time_elapsed()
+
+        print(f"Time ellapsed for {self._timer_name}: {round(time_ellapsed,4)} s")
+
+        return time_ellapsed
+
+    def __del__(self):
+        self.stop()
+
+    def _time_elapsed(self) -> float:
+        """How many time has passed
+
+        Returns:
+            float: time passed in ms
+        """ 
+
+        start = self._start
+        end = datetime.now() if self._running else self._end
+
+        return (end - start).seconds

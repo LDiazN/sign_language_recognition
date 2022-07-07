@@ -1,0 +1,38 @@
+"""Common utilities used for training and inference
+"""
+
+# Python imports
+import pickle
+from typing import Any, Callable
+from pathlib import Path
+
+class Cacher:
+    """Class to manage cache for a given function output. If cache exists in disk, then use cached version 
+        (might be out of date) instead of function output
+    """
+
+    def __init__(self, fn_to_cache : Callable[[], Any], cache_name : str = "cache") -> None:
+        cache_name = cache_name.split()[0]
+        cache_name = f".{cache_name}.pkl"
+
+        self._cache_name = cache_name
+        self._path = Path(cache_name)
+        self._fn_to_cache = fn_to_cache
+
+    def get(self) -> Any:
+        """
+            Retrieve cached output if any, or call the cached function and return and save its output
+        """ 
+
+        # If exists, load it   
+        if self._path.exists():
+            with self._path.open("rb") as f:
+                return pickle.load(f)
+
+        # if not, call and save
+        result = self._fn_to_cache()
+        with self._path.open("wb") as f:
+            pickle.dump(result, f)
+        
+        return result
+

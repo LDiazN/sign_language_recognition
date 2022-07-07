@@ -64,7 +64,7 @@ class JointData:
         """
             array representation for this joint
         """
-        return np.array([self.x, self.y, self.z, int(self.visibility)])
+        return np.array([float(self.x), float(self.y), float(self.z), int(self.visibility)])
 
     @classmethod
     def n_channels(cls) -> int:
@@ -91,12 +91,11 @@ class PoseGraph:
         """
         return np.array([e.as_array for e in self.edges])
 
-    @property
-    def joints_array(self) -> np.ndarray:
+    def joints_array(self, just_xy : bool = False) -> np.ndarray:
         """
             Array representation for joints
         """
-        return np.array([j.as_array for j in self.joint_data])
+        return np.array([(j.as_array if not just_xy else j.as_array[:2]) for j in self.joint_data])
 
     @property
     def as_dgl_graph(self) -> dgl.DGLGraph:
@@ -172,14 +171,20 @@ class PoseGraph:
                 int((y - min_y)/(max_y - min_y) * height)
                 )
 
+        # Utility to check if a 2d point in space is valid 
+        def valid(x : float, y : float) -> bool:
+            return bool(np.linalg.norm(np.array([float(x), float(y)])) >= 0.01)
+
         # Create black background
         img = np.zeros((width, height,3))
 
         # Draw points in image
         for (j, intensity) in zip(self.joint_data, joint_color_intensity):
-            if not j.visibility:
-                continue
             pos_img = to_img(j.x, j.y)
+
+            if not valid(*pos_img):
+                continue
+            
             cv2.circle(img, pos_img, joint_radius_px, intensity * joint_color, -1)
 
 
@@ -188,18 +193,18 @@ class PoseGraph:
                 p1 = self.joint_data[edge.start]
                 p2 = self.joint_data[edge.end]
 
-                if not p1.visibility or not p2.visibility:
-                    continue
-
                 p1_img = to_img(p1.x, p1.y)
                 p2_img = to_img(p2.x, p2.y)
+
+                if not valid(*p1_img) or not valid(*p2_img):
+                    continue
 
                 cv2.line(img, p1_img, p2_img, EDGE_COLOR, 2)
 
         return img
 
     @staticmethod
-    def as_trajectory_cv_img(graphs : list, width : int = 512, height : int = 512, show_edges : bool = False, joint_radius_px : int = 3) -> np.ndarray:
+    def as_trajectory_cv_img(graphs : list, width : int = 512, height : int = 512, show_edges : bool = False, joint_radius_px : int = 3, joint_color : Optional[Tuple[float, float, float]] = None) -> np.ndarray:
         """Create an image with all frames of the given graph, such that earlier frames are darker than newer frames
 
         Args:
@@ -215,7 +220,7 @@ class PoseGraph:
         min_x, max_x, min_y, max_y = PoseGraph._bounding_box_from_sign(pose_graphs)
                 
         # Create image for each graph
-        imgs = (g.as_cv_img(width, height, show_edges, joint_radius_px, bounding_box=(min_x, max_x, min_y, max_y)) for g in pose_graphs)
+        imgs = (g.as_cv_img(width, height, show_edges, joint_radius_px, bounding_box=(min_x, max_x, min_y, max_y), joint_color=joint_color) for g in pose_graphs)
 
         # Compute color incresing for each graph 
         n_frames = len(pose_graphs)
@@ -341,7 +346,7 @@ class PoseGraph:
 
         for g in sign:
             # Build tensor of joints with sum of coordinates
-            joint_tensor = np.array([[j.x, j.y] for j in g.joint_data])
+            joint_tensor = np.array([[float(j.x), float(j.y)] for j in g.joint_data])
 
             # Add non-zeros to compute final division
             non_zero_count += (joint_tensor != [0,0]).astype(int)
@@ -360,7 +365,7 @@ class PoseGraph:
 
         for g in sign:
             # Build tensor of joints with sum of coordinates
-            joint_tensor = np.array([[j.x, j.y] for j in g.joint_data])
+            joint_tensor = np.array([[float(j.x), float(j.y)] for j in g.joint_data])
 
             # Sum values of joints to mean joints
             mean_joints += joint_tensor
@@ -391,7 +396,7 @@ class PoseGraph:
         for g in graph_list:
 
             # Build joint positions array
-            joints = np.array([[j.x, j.y] for j in g.joint_data])
+            joints = np.array([[float(j.x), float(j.y)] for j in g.joint_data])
             result += (joints - mean_joints) ** 2 
 
         non_zero_count = non_zero_count - 1
