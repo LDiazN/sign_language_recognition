@@ -3,7 +3,6 @@
 """
 
 # Python imports
-from email.policy import default
 from pathlib import Path
 
 # Local imports 

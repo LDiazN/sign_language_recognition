@@ -4,36 +4,119 @@
 """
 
 # Third party imports
-from typing import Tuple, Optional
+import dataclasses
+from typing import Any, Callable, Dict, List, Tuple, Optional, Type
+from matplotlib.pyplot import axis
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
-from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data import TensorDataset, DataLoader, Dataset, ConcatDataset, SubsetRandomSampler
 from torch.utils.tensorboard import SummaryWriter
 import tqdm
 from torchmetrics import Accuracy
+from sklearn.model_selection import KFold
+from stringcolor import cs
+import itertools
+import numpy as np
+import matplotlib.pyplot as plt
+import wandb
 
 # Python imports
+from dataclasses import dataclass, asdict
 from datetime import datetime
 
 # local imports
 
 
+
+@dataclass
+class TrainResult:
+    """Result after a training process
+    """
+
+    best_loss_on_validation : float
+    best_acc_on_validation : float
+    best_loss_on_train : float
+    best_acc_on_train : float
+    n_epochs : int
+    n_classes : int
+    train_duration : float 
+
+    def as_report(self) -> str:
+        """Return a human-readable version of this data
+
+        Returns:
+            str: Human readable version, might contain colored strings
+        """
+
+        train_color = 'cyan'
+        validation_color = 'gold2'
+        loss_color = 'red3'
+        acc_color = "steelblue"
+
+        train_str = str(cs("train", train_color))
+        valid_str = str(cs("validation", validation_color))
+        loss_str = str(cs("loss", loss_color))
+        acc_str = str(cs("accuracy", acc_color))
+
+        result = "🏋️  -- < Training Result > ----------------  🏋️\n"
+        result += f"Epochs: {self.n_epochs} | Classes: {self.n_classes}\n"
+        result += f"\t- Best {loss_str} on {valid_str}: {str(cs(self.best_loss_on_validation, 'blue'))}\n"
+        result += f"\t- Best {acc_str} on {valid_str}: {TrainResult._get_color_for_acc(self.best_acc_on_validation)}\n"
+        result += f"\t- Best {loss_str} on {train_str}: {str(cs(self.best_loss_on_train, 'blue'))}\n"
+        result += f"\t- Best {acc_str} on {train_str}: {TrainResult._get_color_for_acc(self.best_acc_on_train)}\n"
+        result += f"Training time: {cs(str(round(self.train_duration, 3)), 'purple')}\n"
+    
+        return result
+
+    @staticmethod
+    def _get_color_for_acc(acc : float) -> str:
+        """Get color for the specified accuracy, the greener the color, the better the accuracy
+
+        Args:
+            acc (float): Accuracy to score
+
+        Returns:
+            _type_: _description_
+        """
+        val = round(acc, 4)
+        if 0 <= acc < 0.25:
+            color = "red"
+        elif .25 <= acc < .50:
+            color = "orange"
+        elif .50 <= acc < .75:
+            color = "yellow"
+        elif .75 <= acc <= 1:
+            color = "green"
+        else:
+            raise ValueError(f"Invalid value for accuracy: {val}")
+
+        return str(cs(str(val), color))
 class Trainer:
     """
         The trainer class will perform training for a model with the specified 
         data as input.
     """
 
-    def __init__(self, model : nn.Module, train_data : DataLoader, valid_data : DataLoader, loss_fn : nn.CrossEntropyLoss = nn.CrossEntropyLoss(), optimizer : Optional[torch.optim.Optimizer] = None, experiment_name : str = "sign_lang_recognition"):
+    def __init__(self, model : nn.Module, train_data : Dataset, valid_data : Dataset, loss_fn : nn.CrossEntropyLoss = nn.CrossEntropyLoss(), optimizer : Optional[torch.optim.Optimizer] = None, experiment_name : str = "sign_lang_recognition", batch_size : int = 10, acceptance_th = 0.5, use_wandb : bool = False):
         self._model = model
         self._train_data = train_data
         self._valid_data = valid_data
         self._loss_fn = loss_fn
         self._optimizer = optimizer or torch.optim.Adam(model.parameters(), lr=0.0005, betas=(0.9,0.999), amsgrad=False)
         self._experiment_name = experiment_name
+        self._batch_size = batch_size
+        self._acceptance_th = acceptance_th
+        self._use_wandb = use_wandb
 
-    def train_one_epoch(self, epoch_index : int, acceptance_th : float = 0.5, tb_writer : Optional[SummaryWriter] = None ) -> Tuple[float, float]:
+    def train_one_epoch(self, 
+                        epoch_index : int, 
+                        acceptance_th : float = 0.5, 
+                        tb_writer : Optional[SummaryWriter] = None, 
+                        train_data : Optional[DataLoader] = None,
+                        optim : Optional[torch.optim.Optimizer] = None,
+                        model : Optional[nn.Module] = None
+                         ) -> Tuple[float, float]:
         """  Perform training for a single epoch, and return loss and accuracy 
 
         Args:
@@ -49,14 +132,14 @@ class Trainer:
         assert 0 <= acceptance_th <= 1
 
         loss_gathered = 0
-        train_data = self._train_data
-        model = self._model
+        train_data = train_data or DataLoader(self._train_data, batch_size=self._batch_size)
+        model = model or self._model
         loss_fn = self._loss_fn
-        optim = self._optimizer
+        optim = optim or self._optimizer
 
         n_batches = 0 # Use element count to compute avg loss and accuracy
 
-        accuracy_counter = Accuracy()
+        accuracy_counter = Accuracy(acceptance_th)
 
         for i, data in enumerate(train_data):
             inputs, labels = data
@@ -90,7 +173,16 @@ class Trainer:
 
         return (accuracy, loss_gathered)
 
-    def run_train(self, n_epochs : int, acceptance_th : float = 0.5):
+    def run_train(
+        self, 
+        n_epochs : int, 
+        acceptance_th : float = 0.5, 
+        train_dataloader : Optional[DataLoader] = None, 
+        valid_dataloader : Optional[DataLoader] = None, 
+        optim : Optional[torch.optim.Optimizer] = None,
+        model : Optional[nn.Module] = None,
+        train_title : Optional[str] = None
+        ) -> TrainResult:
         """Run a training process for the specified amount of epochs
 
         Args:
@@ -100,10 +192,24 @@ class Trainer:
                                     any class > 0.5 as the predicted class
         """
 
-        model = self._model
+        model = model or self._model
         loss_fn = self._loss_fn
 
-        valid_data = self._valid_data
+        # Set up wandb monitoring in case is needed
+        if self._use_wandb:
+            wandb.watch(model, criterion=loss_fn, log="all")
+            configs = {
+                "n_epochs" : n_epochs,
+                "acceptance_th" : acceptance_th
+            }
+
+            if train_title:
+                configs["title"] = train_title
+
+            wandb.config = configs
+
+
+        valid_data = valid_dataloader or DataLoader(self._valid_data, batch_size=self._batch_size)
 
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         writer = SummaryWriter('runs/{}{}'.format(self._experiment_name, timestamp))
@@ -111,6 +217,9 @@ class Trainer:
         # Keep track of best metrics
         best_loss = float('inf')
         best_acc = -1.
+
+        best_train_loss = float('inf')
+        best_train_acc = -1.
 
         accuracy_counter = Accuracy()
 
@@ -121,29 +230,32 @@ class Trainer:
 
             # Run a single train step
             model.train(True)
-            avg_acc, avg_loss = self.train_one_epoch(i, tb_writer=writer, acceptance_th=acceptance_th)
+            avg_acc, avg_loss = self.train_one_epoch(i, tb_writer=writer, acceptance_th=acceptance_th, optim=optim, model=model, train_data=train_dataloader)
             model.train(False)
 
+            best_train_acc = max(best_train_acc, avg_acc)
+            best_train_loss = min(best_train_loss, avg_loss)
 
             # Compute validation metrics
             n_batches = 0
             valid_acc = 0
             valid_loss = 0
 
-            for (inputs, labels) in valid_data:
+            with torch.no_grad():
+                for (inputs, labels) in valid_data:
 
-                outputs = model(inputs)
+                    outputs = model(inputs)
 
-                accuracy_counter.update(outputs, labels.argmax(1))
+                    accuracy_counter.update(outputs, labels.argmax(1))
 
-                valid_loss += loss_fn(outputs, labels).item()
+                    valid_loss += loss_fn(outputs, labels).item()
 
-                n_batches += 1
+                    n_batches += 1
 
             valid_acc = accuracy_counter.compute().item()
             valid_loss /= n_batches 
 
-            iter.set_description(f"[Epoch: {i+1} / {n_epochs}] Train Acc: {round(avg_acc,4)} | Train Loss: {round(avg_loss,4)} | Val Acc: {round(valid_acc,4)} | Val Loss: {round(avg_loss,4)}")
+            iter.set_description(f"[Epoch: {i+1} / {n_epochs}] Train Acc: {round(avg_acc,4)} | Train Loss: {round(avg_loss,4)} | Val Acc: {round(valid_acc,4)} | Val Loss: {round(valid_loss,4)}")
 
             # Log to tensorboard
             writer.add_scalars('Training vs. Validation Loss',
@@ -155,15 +267,36 @@ class Trainer:
                     i + 1)
             writer.flush()
 
+            # Log if needed
+            if self._use_wandb:
+                wandb.log(
+                    {
+                    "training_loss" : avg_loss, 
+                    "valid_loss" : valid_loss,
+                    "training_acc" : avg_acc,
+                    "valid_acc" : valid_acc 
+                    }
+                )
+
             # Keep track of best model
             best_acc = max(valid_acc, best_acc)
-            best_loss = min(best_loss, valid_loss)
+            best_loss = min(valid_loss, best_loss)
             # TODO save to disk the best model
 
         timer.stop()
         print(f"Training finished, best loss on validation: {best_loss}, best accuracy on validation {best_acc}")
 
+        result = TrainResult(
+            best_loss_on_validation=best_loss,
+            best_acc_on_validation=best_acc,
+            best_loss_on_train=best_train_loss,
+            best_acc_on_train=best_train_acc,
+            n_epochs=n_epochs,
+            n_classes=self._valid_data._labels.shape[1],
+            train_duration=timer.time_elapsed()
+        )
 
+        return result 
 
     def _get_success_count(self, labels : torch.Tensor, preds : torch.Tensor, acceptance_th : float) -> int:
         """Get ammount of correct answers in the pred tensor according to the labels tensor and the acceptance treshold
@@ -182,6 +315,150 @@ class Trainer:
         actual_labels = labels.argmax(1)
 
         return int((pred_labels == actual_labels).float().sum().item())
+
+    def train_k_folds(self, 
+                    model_class : Type[nn.Module], 
+                    optimizer_fn : Callable[[], torch.optim.Optimizer],
+                    model_args : Dict[str, Any], 
+                    k_folds : int = 5, 
+                    n_epochs : int = 10, 
+                ) -> List[TrainResult]:
+        """Run a k-folds training session.
+
+        Args:
+            k_folds (int, optional): _description_. Defaults to 5.
+        """
+        # Concat train and valid into one
+        train_dataset = self._train_data
+        valid_dataset = self._valid_data
+        dataset = ConcatDataset([train_dataset, valid_dataset])
+
+        # kfold: subsets of datasets
+        torch.manual_seed(42)
+        kfold = KFold(n_splits=k_folds, shuffle=True)
+
+        # Results for each fold
+        results = []
+
+        for fold_i, (train_ids, valid_ids) in enumerate(kfold.split(dataset)):
+            
+            print(f"-- < Fold {fold_i} > -----------------------")
+
+            # Create samplers to select which rows will be used during training
+            train_subsampler = SubsetRandomSampler(train_ids)
+            valid_subsampler = SubsetRandomSampler(valid_ids)
+
+            # Create dataloaders
+            train_dataloader = DataLoader(dataset, batch_size=self._batch_size, sampler=train_subsampler)
+            valid_dataloader = DataLoader(dataset, batch_size=self._batch_size, sampler=valid_subsampler)
+
+            # Init model 
+            # model = model_class(**model_args).to("cuda")
+            self._model.apply(Trainer._reset_weights)
+
+            # Init optimizer
+            optim = optimizer_fn()
+
+            # Run a training session with this configuration
+            
+            result = self.run_train(
+                n_epochs, 
+                valid_dataloader=valid_dataloader, 
+                optim=optim, 
+                train_dataloader=train_dataloader, 
+                acceptance_th=self._acceptance_th,
+                )
+            results.append(result)
+
+            # Print results so far TODO
+            print(result.as_report())
+
+        return results
+
+    @staticmethod
+    def _reset_weights(m : nn.Module):
+        '''
+            Try resetting model weights to avoid
+            weight leakage.
+        '''
+        for layer in m.children():
+            if hasattr(layer, 'reset_parameters'):
+                print(f'Reset trainable parameters of layer = {layer}')
+                layer.reset_parameters()
+
+    @torch.no_grad()
+    def compute_predictions(self) -> torch.Tensor:
+        """Compute all predictions usign the provided validation data 
+
+        Returns:
+            torch.Tensor: vector with index of each predicted class per row.
+            Size: (val_data.nrows)
+        """
+        results = torch.tensor([])
+        dataloader = DataLoader(self._valid_data)
+        model = self._model
+        for (input, _) in dataloader:
+            guess = model(input)
+            results = torch.cat([results, guess])
+
+        results = torch.argmax(results, axis=1)
+
+        return results
+
+    @torch.no_grad()
+    def confusion_matrix(self) -> torch.Tensor:
+        
+        # Compute model predictions
+        preds = self.compute_predictions()
+        
+        # Compute labels 
+        d = DataLoader(self._valid_data, batch_size=1000000)
+        labels = torch.tensor([])
+
+        for (_, labs) in d:
+            labels = labs
+        
+        _, n_classes = labels.shape
+        labels = torch.argmax(labels, axis=1)
+
+        assert labels.shape == preds.shape
+
+        # Build pairs and confusion matrix itself\
+        pairs = torch.stack([preds, labels], axis=1)
+        conf_matrix = torch.zeros((n_classes, n_classes))
+
+        for (y_pred, y) in pairs:
+            conf_matrix[y_pred, y] += 1
+
+        return conf_matrix
+
+    def plot_confusion_matrix(self, cm : np.ndarray,  classes : np.ndarray, normalize : bool = False, title="Confusion Matrix", cmap = plt.cm.Blues):
+        
+        cm = np.array(cm.cpu())
+        if normalize:
+            cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+            print("Normalized confusion matrix")
+        else:
+            cm.astype("int")
+            print('Confusion matrix, without normalization')
+
+        print(cm)
+        
+        plt.imshow(cm, interpolation='nearest', cmap=cmap)
+        plt.title(title)
+        plt.colorbar()
+        tick_marks = np.arange(len(classes))
+        plt.xticks(tick_marks, classes, rotation=45)
+        plt.yticks(tick_marks, classes)
+
+        fmt = '.2f' if normalize else 'd'
+        thresh = cm.max() / 2.
+        for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+            plt.text(j, i, "", horizontalalignment="center", color="white" if cm[i, j] > thresh else "black")
+
+        plt.tight_layout()
+        plt.ylabel('True label')
+        plt.xlabel('Predicted label')
 
 class ScopedTimer:
     """Simple timer that will count how much time is spend in the function where it's created
@@ -206,7 +483,7 @@ class ScopedTimer:
         self._running = False
         self._end = datetime.now()
 
-        time_ellapsed = self._time_elapsed()
+        time_ellapsed = self.time_elapsed()
 
         print(f"Time ellapsed for {self._timer_name}: {round(time_ellapsed,4)} s")
 
@@ -215,7 +492,7 @@ class ScopedTimer:
     def __del__(self):
         self.stop()
 
-    def _time_elapsed(self) -> float:
+    def time_elapsed(self) -> float:
         """How many time has passed
 
         Returns:

@@ -7,6 +7,7 @@ This model is based on the following paper:
 
 # Third party imports
 import cv2
+from numpy import var
 from rsa import sign
 import torch
 import torch.nn as nn
@@ -44,14 +45,47 @@ class DataPreprocessor:
                     width=image_size_x, 
                     height=image_size_y, 
                     joint_radius_px=joint_pos_radius,
-                    joint_color=(1.0, 0.0,0.0)
+                    joint_color=(1.0, 0.0,0.0),
+                    intensity_fn= lambda _: 1
                 )[..., 0]
 
-        t = torch.from_numpy(
+        img = torch.from_numpy(
                 img
             ).cuda()
 
-        return t
+        # Create resulting image
+        result = torch.zeros((image_size_x, image_size_y, 1))
+        result[:,:,0] = img
+        #result[:,:,1:3] = velocity[:,:,:2]
+        #result[:,:,3] = variance
+
+        return result 
+
+    def get_velocity_map(self, graphs : PoseGraph, joint_pos_radius : int, width : int, height : int) -> torch.Tensor:
+
+        # Set up velocity map
+        velocity = PoseGraph.as_velocity_map(
+            graphs,
+            width=width,
+            height=height,
+            joint_radius_px=joint_pos_radius,
+        )
+
+        velocity = torch.from_numpy(velocity).cuda()
+
+        return velocity
+    def get_variance_graph(self, graphs : PoseGraph, joint_pos_radius : int, width : int, height : int) -> torch.Tensor:
+
+        # Set up variance map
+        variance = PoseGraph.variance_graph(
+            graphs,
+            show_edges=False, 
+            joint_color=(1,0,0), 
+            joint_radius_px=joint_pos_radius,
+            width=width,
+            height=height)[...,0]
+        variance = torch.from_numpy(variance).cuda()
+        return variance
 
     def process_many(self, signs : List[List[PoseValues]], include_face : bool = False, image_size_x : int = 256, image_size_y : int = 256, joint_pos_radius = 2) -> torch.Tensor:
         """Process many signs into a single torch tensor
@@ -106,23 +140,42 @@ class TMCNNModel(nn.Module): # Trajectory Map CNN Model
 
         self._num_classes = num_classes
 
-        self._cnnf = nn.Conv2d(1, 4, 4)
-        self._spatial_pooling = nn.MaxPool2d(4) # Test with more types of pooling
-        self._cnnr = nn.Conv2d(4, 4, 4)
-        self._linear1 = nn.Linear(4*60*60, 64)
+        self._cnnf = nn.Conv2d(1, 4, 16, 1)
+        self._cnnf1 = nn.Conv2d(4, 8, 12, 2)
+        self._cnnf2 = nn.Conv2d(8, 12, 8, 3)
+        self._cnnf3 = nn.Conv2d(12, 16, 4, 4)
+        self._spatial_pooling2 = nn.AvgPool2d(4,1) # Test with more types of pooling
+        self._cnnr = nn.Conv2d(16, 24, 4, 1)
+        self._linear1 = nn.Linear(24*3*3, 64)
         self._linear2 = nn.Linear(64, num_classes)
-
+        self._dropout = nn.Dropout(0.01)
 
     def forward(self, batch_of_images : torch.Tensor) -> torch.Tensor:
         
-        batch_size, w, h = batch_of_images.shape
-        batch_of_images = batch_of_images.reshape((batch_size, 1, w, h))
+        batch_of_images = torch.moveaxis(batch_of_images, -1, 1)
 
         y = self._cnnf(batch_of_images)
-        y = torch.tanh(y)
-        y = self._spatial_pooling(y)
+        y = torch.relu(y)
+
+        y = self._cnnf1(y)
+        #y = self._dropout(y)
+        y = torch.relu(y)
+
+        y = self._cnnf2(y)
+        #y = self._dropout(y)
+        y = torch.relu(y)
+
+        y = self._cnnf3(y)
+        #y = self._dropout(y)
+        y = torch.relu(y)
+
+        y = self._spatial_pooling2(y)
+        #y = self._dropout(y)
+
         y = self._cnnr(y)
-        y = torch.tanh(y)
+        y = torch.relu(y)
+        #y = self._dropout(y)
+
         y = torch.flatten(y, 1)
         y = self._linear1(y)
         y = torch.tanh(y)

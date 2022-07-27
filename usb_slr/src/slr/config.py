@@ -17,6 +17,9 @@ settings = Dynaconf(
     load_dotenv=True,
     validators=[
         # Root folder for local files, such as configs or dataset config files
-        Validator("SLR_HOME", default=str(Path(_HOME, ".usb_slr"))) #type: ignore
+        Validator("SLR_HOME", default=str(Path(_HOME, ".usb_slr"))), #type: ignore
+
+        # Root folder for cache, mostly used during training
+        Validator("SLR_CACHE", default=".")
     ]
 )

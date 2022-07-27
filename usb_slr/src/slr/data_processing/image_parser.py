@@ -18,7 +18,6 @@ from mediapipe.python.solutions.pose_connections import POSE_CONNECTIONS
 from mediapipe.python.solutions.face_mesh_connections import FACEMESH_CONTOURS
 from mediapipe.python.solutions.hands_connections import HAND_CONNECTIONS
 from mediapipe.python.solutions import drawing_utils as mp_drawing
-import dgl
 from typing import Optional
 from pyparsing import Opt
 import torch
@@ -98,7 +97,7 @@ class PoseGraph:
         return np.array([(j.as_array if not just_xy else j.as_array[:2]) for j in self.joint_data])
 
     @property
-    def as_dgl_graph(self) -> dgl.DGLGraph:
+    def as_dgl_graph(self):
         """Return a DGLGraph representation of this pose
 
         Returns:
@@ -136,7 +135,8 @@ class PoseGraph:
         joint_radius_px : int = 3, 
         bounding_box : Optional[Tuple[float, float, float, float]] = None,
         joint_color : Optional[Tuple[float, float, float]] = None,
-        joint_color_intensity : Optional[np.ndarray] = None
+        joint_color_intensity : Optional[np.ndarray] = None,
+        joint_color_array : Optional[np.ndarray] = None
         ) -> np.ndarray:
         """Draw this graph in a CV image
 
@@ -147,7 +147,18 @@ class PoseGraph:
         JOINT_COLOR = (1,0,0)
         EDGE_COLOR = (0,1,0)
 
-        joint_color = np.array(joint_color or JOINT_COLOR)
+        # Set up color function to select color of node: ignore joint color
+        # array if a single color is provided. If any is provided, set fixed color 
+        if joint_color is not None or joint_color_array is None:
+            joint_color = joint_color or JOINT_COLOR
+            def color_fn(i : int) -> np.ndarray:
+                return np.array(joint_color) # type: ignore
+        else:
+            def color_fn(i : int) -> np.ndarray:
+                return joint_color_array[i]
+
+        joint_color = np.array(joint_color or JOINT_COLOR) # type: ignore
+
 
         if joint_color_intensity is None:
             joint_color_intensity = np.ones(len(self.joint_data))
@@ -179,14 +190,13 @@ class PoseGraph:
         img = np.zeros((width, height,3))
 
         # Draw points in image
-        for (j, intensity) in zip(self.joint_data, joint_color_intensity):
+        for (i, (j, intensity)) in enumerate(zip(self.joint_data, joint_color_intensity)):
             pos_img = to_img(j.x, j.y)
 
             if not valid(*pos_img):
                 continue
             
-            cv2.circle(img, pos_img, joint_radius_px, intensity * joint_color, -1)
-
+            cv2.circle(img, pos_img, joint_radius_px, intensity * color_fn(i), -1)
 
         if show_edges:
             for edge in self.edges:
@@ -204,14 +214,30 @@ class PoseGraph:
         return img
 
     @staticmethod
-    def as_trajectory_cv_img(graphs : list, width : int = 512, height : int = 512, show_edges : bool = False, joint_radius_px : int = 3, joint_color : Optional[Tuple[float, float, float]] = None) -> np.ndarray:
+    def as_trajectory_cv_img(
+            graphs : list, 
+            width : int = 512, 
+            height : int = 512, 
+            show_edges : bool = False, 
+            joint_radius_px : int = 3, 
+            joint_color : Optional[Tuple[float, float, float]] = None, 
+            intensity_fn : Optional[Callable[[int], float]]  = None,
+            joint_color_array : Optional[np.ndarray] = None
+        ) -> np.ndarray:
         """Create an image with all frames of the given graph, such that earlier frames are darker than newer frames
 
         Args:
             graphs (list): List of graph to render
+            width (int, optional): width of resulting image. Defaults to 512.
+            height (int, optional): height of resulting image. Defaults to 512.
+            show_edges (bool, optional): if should show edges in image. Defaults to False.
+            joint_radius_px (int, optional): radius of joint in resulting image in pixels. Defaults to 3px.
+            joint_color (Optional[Tuple[float, float, float]], optional): Color of joints in image. Defaults to None.
+            intensity_fn (Optional[Callable[[int], float]], optional): Intensity of i'th frame in resulting trajectory map. Defaults to None.
+            joint_color_array (Optional[np.ndarray]): Color array for joints along multiple frames. Shape: (n_frames, n_joints, 3)
 
         Returns:
-            np.ndarray: a cv2 image
+            np.ndarray:  a cv2 image
         """
 
         pose_graphs : List[PoseGraph] = graphs
@@ -220,19 +246,89 @@ class PoseGraph:
         min_x, max_x, min_y, max_y = PoseGraph._bounding_box_from_sign(pose_graphs)
                 
         # Create image for each graph
-        imgs = (g.as_cv_img(width, height, show_edges, joint_radius_px, bounding_box=(min_x, max_x, min_y, max_y), joint_color=joint_color) for g in pose_graphs)
+        if joint_color is not None or joint_color_array is None:
+            imgs = (g.as_cv_img(width, height, show_edges, joint_radius_px, bounding_box=(min_x, max_x, min_y, max_y), joint_color=joint_color) for g in pose_graphs)
+        else:
+            imgs = (g.as_cv_img(width, height, show_edges, joint_radius_px, bounding_box=(min_x, max_x, min_y, max_y), joint_color_array=joint_color_array[i]) for (i, g) in enumerate(pose_graphs))
 
         # Compute color incresing for each graph 
         n_frames = len(pose_graphs)
-        increase = 1.0 / n_frames
 
         # Sum each img 
+        intensity_fn = intensity_fn or (lambda i: (1. / n_frames) * (i + 1)) 
         result = np.zeros((width, height, 3))
         for (i, img) in enumerate(imgs):
-            result += increase * (i + 1) *  img
+            result += intensity_fn(i) *  img
 
         # Return img with all frames
         return result
+
+    @staticmethod
+    def as_velocity_map(graphs :list, width : int = 512, height : int = 512, show_edges : bool = False, joint_radius_px : int = 3) -> np.ndarray:
+        """_summary_
+
+        Args:
+            graphs (list): _description_
+            width (int, optional): _description_. Defaults to 512.
+            height (int, optional): _description_. Defaults to 512.
+            show_edges (bool, optional): _description_. Defaults to False.
+            joint_radius_px (int, optional): _description_. Defaults to 3.
+
+        Returns:
+            np.ndarray: _description_
+        """
+        pose_graphs : List[PoseGraph] = graphs
+
+        # Compute velocity from one frame to the next, ignore last frame and use starting
+        # frame as position for color
+        joints = [g.joints_array(True) for g in pose_graphs]
+        graph_joints = np.array(joints)
+        
+        # Create velocity matrix from joints: try to ignore damaged joints set to 0
+        n_frames, n_joints, joint_size = graph_joints.shape
+        velocity = np.zeros((n_frames-1, n_joints, joint_size))
+
+        def valid(x : float, y : float) -> bool:
+            return bool(np.linalg.norm(np.array([float(x), float(y)])) >= 0.01)
+
+        for frame_i in range(n_frames - 1):
+            # Start point for velocity
+            curr_frame = joints[frame_i]
+            for j in range(n_joints):
+
+                curr_joint = curr_frame[j]
+                x, y = curr_joint[0], curr_joint[1]
+                if not valid(x,y):
+                    continue
+
+                # Search the next non-zero joint 
+                next_joint = curr_joint # Velocity will be zero if no next joint is found
+                for next_frame_i in range(frame_i+1, n_frames):
+                    x = joints[next_frame_i][j][0]
+                    y = joints[next_frame_i][j][1]
+                    if not valid(x,y):
+                        continue
+                    next_joint = joints[next_frame_i][j]
+                
+                # Now that we have the next non-zero joint, set velocity for this frame
+                velocity[frame_i][j] = next_joint - curr_joint
+
+        # Normalize velocity, as colors should be in range 0,1
+        velocity = PoseGraph._normalize(velocity)
+
+        # Create channel color array
+        rows, cols, _ = velocity.shape
+        velocity_color = np.zeros((rows, cols, 3))
+        velocity_color[:,:,0] = velocity[:,:,0]
+        velocity_color[:,:,1] = velocity[:,:,1]
+
+        pose_graphs = pose_graphs[:len(pose_graphs) - 1]
+
+        return PoseGraph.as_trajectory_cv_img(pose_graphs, width, height, show_edges, joint_radius_px, intensity_fn= lambda _: 1, joint_color_array=velocity)
+
+
+
+
 
     @staticmethod
     def sign_to_imgs(sign : list, width : int = 512, height : int = 512, show_edges : bool = False, joint_radius_px : int = 3) -> List[np.ndarray]:
@@ -404,7 +500,14 @@ class PoseGraph:
         return result / non_zero_count
 
     @staticmethod
-    def variance_graph(sign : list) -> np.ndarray:
+    def variance_graph(
+        sign : list, 
+        show_edges : bool = True, 
+        joint_radius_px : int = 5, 
+        joint_color : Tuple[float, float, float]=(0.0,165.0 / 255.0, 255.0 / 255.0), 
+        width : int = 512,
+        height : int = 512
+        ) -> np.ndarray:
         """ Create a variance graph where the positions of nodes are mean positions, and 
             its color represents how much variance it has relative to other nodes
 
@@ -423,9 +526,24 @@ class PoseGraph:
         maxi = np.max(variance)
         variance = (1/(maxi - mini)) * (variance - mini)
 
-        ORANGE = (0.0,165.0 / 255.0, 255.0 / 255.0)
+        return mean_graph.as_cv_img(show_edges= show_edges, joint_radius_px=joint_radius_px, joint_color=joint_color, joint_color_intensity=variance, width=width, height=height)
 
-        return mean_graph.as_cv_img(show_edges= True, joint_radius_px=5, joint_color=ORANGE, joint_color_intensity=variance)
+    @staticmethod
+    def _normalize(arr : np.ndarray) -> np.ndarray:
+        """Normalize given array with minmax
+
+        Args:
+            arr (np.ndarray): array to normalize
+
+        Returns:
+            np.ndarray: Normalized array
+        """
+        mini = np.min(arr)
+        maxi = np.max(arr)
+        arr = (1/(maxi - mini)) * (arr - mini)
+
+        return arr
+
 
 @dataclasses.dataclass
 class PoseValues:
