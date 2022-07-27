@@ -27,6 +27,8 @@ sklearn = "^0.0"
 keras-utils = "^1.0.13"
 torch = "^1.11.0"
 torchmetrics = "^0.8.2"
+string-color = "^1.2.3"
+wandb = "^0.12.21"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
