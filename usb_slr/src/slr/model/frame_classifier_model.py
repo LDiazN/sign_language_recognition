@@ -83,19 +83,22 @@ class FrameClassifier(nn.Module):
 
 
         # Layers
-        self._bn = nn.BatchNorm2d(1)
+        self._bn = nn.BatchNorm2d(2)
 
         self._cnn_seq_1 = nn.Sequential(
-            nn.Conv2d(1, 10, 5, 1), nn.MaxPool2d(2,2), nn.ReLU(inplace=True),  nn.BatchNorm2d(10), 
-            nn.Conv2d(10, 20, 3, 1), nn.MaxPool2d(2,2), nn.ReLU(inplace=True), nn.BatchNorm2d(20),
-            nn.Conv2d(20, 30, 3, 1), nn.MaxPool2d(2,2), nn.ReLU(inplace=True), nn.BatchNorm2d(30),
-            nn.Conv2d(30, 40, 3, 1), nn.MaxPool2d(2,2), nn.ReLU(inplace=True), nn.BatchNorm2d(40),
+            nn.Conv2d(2, 10, 8, 1), nn.ReLU(inplace=True),  nn.MaxPool2d(2,2), nn.BatchNorm2d(10), nn.Dropout(0.2), # MaxPool(2,2)
+            nn.Conv2d(10, 12, 5, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(12), nn.Dropout(0.2),
+            nn.Conv2d(12, 14, 3, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(14), nn.Dropout(0.2), # MaxPool(2,2)
+            # nn.Conv2d(14, 16, 3, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(16), nn.Dropout(0.2),
+            nn.Conv2d(14, 18, 3, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(18), nn.Dropout(0.2), # MaxPool(2,2)
         )
 
+        
+
         self._fc = nn.Sequential(
-            nn.Linear(40*6*6, 1024), nn.Dropout(0.4), nn.Tanh(),
-            nn.Linear(1024, 512), nn.Dropout(0.4), nn.Tanh(),
-            nn.Linear(512, num_classes), nn.Tanh()
+            nn.Linear(18*5*5, 512), nn.Dropout(0.6), nn.Tanh(),
+            nn.Linear(512, 256), nn.Dropout(0.6), nn.Tanh(),
+            nn.Linear(256, num_classes), nn.Tanh()
         )
         
     def forward(self, batch_of_images : torch.Tensor) -> torch.Tensor:
