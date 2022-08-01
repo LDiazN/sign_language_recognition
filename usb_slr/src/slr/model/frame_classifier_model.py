@@ -90,13 +90,11 @@ class FrameClassifier(nn.Module):
             nn.Conv2d(10, 12, 5, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(12), nn.Dropout(0.2),
             nn.Conv2d(12, 14, 3, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(14), nn.Dropout(0.2), # MaxPool(2,2)
             # nn.Conv2d(14, 16, 3, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(16), nn.Dropout(0.2),
-            nn.Conv2d(14, 18, 3, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(18), nn.Dropout(0.2), # MaxPool(2,2)
+            nn.Conv2d(14, 16, 3, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(16), nn.Dropout(0.2), # MaxPool(2,2)
         )
 
-        
-
         self._fc = nn.Sequential(
-            nn.Linear(18*5*5, 512), nn.Dropout(0.6), nn.Tanh(),
+            nn.Linear(16*5*5, 512), nn.Dropout(0.6), nn.Tanh(),
             nn.Linear(512, 256), nn.Dropout(0.6), nn.Tanh(),
             nn.Linear(256, num_classes), nn.Tanh()
         )
