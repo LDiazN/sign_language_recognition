@@ -93,14 +93,24 @@ class FrameClassifier(nn.Module):
             nn.Conv2d(14, 16, 3, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(16), nn.Dropout(0.2), # MaxPool(2,2)
         )
 
+        self._lstm_seq = nn.Sequential(
+            nn.LSTM(input_size = 258, hidden_size = 32, num_layers = 1, batch_first = True),
+        )
+
+        self._lstm_fc = nn.Sequential( 
+            nn.Linear(80 * 32, 16*5*5),
+            nn.Dropout(0.6)
+        )
+
         self._fc = nn.Sequential(
             nn.Linear(16*5*5, 512), nn.Dropout(0.6), nn.Tanh(),
             nn.Linear(512, 256), nn.Dropout(0.6), nn.Tanh(),
             nn.Linear(256, num_classes), nn.Tanh()
         )
         
-    def forward(self, batch_of_images : torch.Tensor) -> torch.Tensor:
-        shape = batch_of_images.shape
+    def forward(self, batch_of_images_and_vecs : Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+
+        batch_of_images, lstm_vecs = batch_of_images_and_vecs
 
         y = self._bn(batch_of_images)
 
@@ -108,6 +118,16 @@ class FrameClassifier(nn.Module):
 
         y = torch.flatten(y, 1)
 
+        # -- < LSTM Block > ---------------------------
+        y_lstm, _ = self._lstm_seq(lstm_vecs)
+        y_lstm = torch.tanh(y_lstm)
+        y_lstm = torch.flatten(y_lstm, start_dim=1)
+        y_lstm = self._lstm_fc(y_lstm)
+        # ---------------------------------------------
+
         y = self._fc(y)
+        y_lstm = self._fc(y_lstm)
+
+        y = (y + y_lstm)/2 # element wise mean
 
         return torch.softmax(y, 1)
