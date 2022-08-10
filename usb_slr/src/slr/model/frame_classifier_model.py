@@ -83,30 +83,34 @@ class FrameClassifier(nn.Module):
 
 
         # Layers
-        self._bn = nn.BatchNorm2d(2)
+        self._bn = nn.BatchNorm2d(3)
 
         self._cnn_seq_1 = nn.Sequential(
-            nn.Conv2d(2, 10, 8, 1), nn.ReLU(inplace=True),  nn.MaxPool2d(2,2), nn.BatchNorm2d(10), nn.Dropout(0.2), # MaxPool(2,2)
+            nn.Conv2d(3, 10, 8, 1), nn.ReLU(inplace=True),  nn.MaxPool2d(2,2), nn.BatchNorm2d(10), nn.Dropout(0.2), # MaxPool(2,2)
+            nn.Conv2d(10, 10, 1, 1), nn.ReLU(inplace=True),
             nn.Conv2d(10, 12, 5, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(12), nn.Dropout(0.2),
             nn.Conv2d(12, 14, 3, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(14), nn.Dropout(0.2), # MaxPool(2,2)
-            # nn.Conv2d(14, 16, 3, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(16), nn.Dropout(0.2),
-            nn.Conv2d(14, 16, 3, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(16), nn.Dropout(0.2), # MaxPool(2,2)
+            nn.Conv2d(14, 16, 3, 1), nn.ReLU(inplace=True), nn.BatchNorm2d(16), nn.Dropout(0.2),
+            nn.Conv2d(16, 18, 3, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(18), nn.Dropout(0.2), # MaxPool(2,2)
         )
 
+        intermediate_output_size = 18*4*4
+
         self._lstm_seq = nn.Sequential(
-            nn.LSTM(input_size = 258, hidden_size = 32, num_layers = 1, batch_first = True),
+            nn.LSTM(input_size = 258, hidden_size = 32, num_layers = 2, batch_first = True),
         )
 
         self._lstm_fc = nn.Sequential( 
-            nn.Linear(80 * 32, 16*5*5),
+            nn.Linear(80 * 32, intermediate_output_size),
             nn.Dropout(0.6)
         )
 
         self._fc = nn.Sequential(
-            nn.Linear(16*5*5, 512), nn.Dropout(0.6), nn.Tanh(),
-            nn.Linear(512, 256), nn.Dropout(0.6), nn.Tanh(),
+            nn.Linear(intermediate_output_size, 512), nn.Dropout(0.2), nn.Tanh(),
+            nn.Linear(512, 256), nn.Dropout(0.2), nn.Tanh(),
             nn.Linear(256, num_classes), nn.Tanh()
         )
+
         
     def forward(self, batch_of_images_and_vecs : Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
 
