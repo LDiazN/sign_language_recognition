@@ -6,9 +6,7 @@
 # Third party imports
 import dataclasses
 from typing import Any, Callable, Dict, List, Tuple, Optional, Type
-from matplotlib.pyplot import axis
 import torch.nn as nn
-import torch.nn.functional as F
 import torch
 from torch.utils.data import TensorDataset, DataLoader, Dataset, ConcatDataset, SubsetRandomSampler
 from torch.utils.tensorboard import SummaryWriter
@@ -20,6 +18,7 @@ import itertools
 import numpy as np
 import matplotlib.pyplot as plt
 import wandb
+from torch.optim.lr_scheduler import StepLR,_LRScheduler
 
 # Python imports
 from dataclasses import dataclass, asdict
@@ -98,7 +97,7 @@ class Trainer:
         data as input.
     """
 
-    def __init__(self, model : nn.Module, train_data : Dataset, valid_data : Dataset, loss_fn : nn.CrossEntropyLoss = nn.CrossEntropyLoss(), optimizer : Optional[torch.optim.Optimizer] = None, experiment_name : str = "sign_lang_recognition", batch_size : int = 10, acceptance_th = 0.5, use_wandb : bool = False):
+    def __init__(self, model : nn.Module, train_data : Dataset, valid_data : Dataset, loss_fn : nn.CrossEntropyLoss = nn.CrossEntropyLoss(), optimizer : Optional[torch.optim.Optimizer] = None, experiment_name : str = "sign_lang_recognition", batch_size : int = 10, acceptance_th = 0.5, use_wandb : bool = False, lr_scheduler : Optional[_LRScheduler] = None):
         self._model = model
         self._train_data = train_data
         self._valid_data = valid_data
@@ -108,6 +107,8 @@ class Trainer:
         self._batch_size = batch_size
         self._acceptance_th = acceptance_th
         self._use_wandb = use_wandb
+        self._lr_scheduler = lr_scheduler
+
 
     def train_one_epoch(self, 
                         epoch_index : int, 
@@ -153,6 +154,7 @@ class Trainer:
             loss = loss_fn(outputs, labels)
             loss.backward()
             optim.step()
+            
 
             accuracy_counter.update(outputs, labels.argmax(1))
 
@@ -210,6 +212,7 @@ class Trainer:
 
 
         valid_data = valid_dataloader or DataLoader(self._valid_data, batch_size=self._batch_size)
+        train_dataloader = train_dataloader or DataLoader(self._train_data, batch_size=self._batch_size,)
 
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         writer = SummaryWriter('runs/{}{}'.format(self._experiment_name, timestamp))
@@ -221,7 +224,7 @@ class Trainer:
         best_train_loss = float('inf')
         best_train_acc = -1.
 
-        accuracy_counter = Accuracy()
+        accuracy_counter = Accuracy(threshold=acceptance_th)
 
         # Main training loop
         iter = tqdm.tqdm(range(n_epochs))
@@ -231,6 +234,8 @@ class Trainer:
             # Run a single train step
             model.train(True)
             avg_acc, avg_loss = self.train_one_epoch(i, tb_writer=writer, acceptance_th=acceptance_th, optim=optim, model=model, train_data=train_dataloader)
+            if self._lr_scheduler:
+                self._lr_scheduler.step()
             model.train(False)
 
             best_train_acc = max(best_train_acc, avg_acc)
@@ -432,7 +437,7 @@ class Trainer:
 
         return conf_matrix
 
-    def plot_confusion_matrix(self, cm : np.ndarray,  classes : np.ndarray, normalize : bool = False, title="Confusion Matrix", cmap = plt.cm.Blues):
+    def plot_confusion_matrix(self, cm : np.ndarray,  classes : np.ndarray, labelmap : Dict[int,str], normalize : bool = False, title : str ="Confusion Matrix", cmap = plt.cm.Blues):
         
         cm = np.array(cm.cpu())
         if normalize:
@@ -448,8 +453,8 @@ class Trainer:
         plt.title(title)
         plt.colorbar()
         tick_marks = np.arange(len(classes))
-        plt.xticks(tick_marks, classes, rotation=45)
-        plt.yticks(tick_marks, classes)
+        plt.xticks(tick_marks, [labelmap[i] for i in classes], rotation=45)
+        plt.yticks(tick_marks, [labelmap[i] for i in classes])
 
         fmt = '.2f' if normalize else 'd'
         thresh = cm.max() / 2.

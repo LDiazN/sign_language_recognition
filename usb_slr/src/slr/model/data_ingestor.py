@@ -12,13 +12,13 @@ from tensorflow.keras.utils import to_categorical # type: ignore
 from sklearn.model_selection import train_test_split
 
 # Local imports 
-from slr.dataset_manager.dataset_managers import DatasetManager, SignDescription
+from slr.dataset_manager.dataset_managers import MicrosoftDatasetManager, SignDescription
 from slr.local_files.file_manager import FileManager
 from slr.model.labels import Labels
 
 # python imports
 import numpy as np
-from typing import Tuple, Optional, Callable
+from typing import Dict, Iterable, Tuple, Optional, Callable
 import logging
 
 class DataIngestor:
@@ -33,7 +33,23 @@ class DataIngestor:
     def __init__(self, file_manager : FileManager = FileManager()):
         self._labels = Labels(file_manager)
         self._file_manager = file_manager
-        self._dataset_manager = DatasetManager(file_manager)
+        self._dataset_manager = MicrosoftDatasetManager(file_manager)
+
+    def retrieve_all(self) -> Iterable[Tuple[np.ndarray, SignDescription]]:
+        """Retrieve all information in the provided dataset
+
+        Returns:
+            Iterable[Tuple[np.ndarray, SignDescription]]: All information available in the dataset, train, test, or valid
+        """
+
+        for x in self._dataset_manager.train_numeric_dataset_client.retrieve_data():
+            yield x
+        
+        for x in self._dataset_manager.val_numeric_dataset_client.retrieve_data():
+            yield x
+
+        for x in self._dataset_manager.test_numeric_dataset_client.retrieve_data():
+            yield x
 
     @property
     def labels(self) -> Labels:
@@ -48,9 +64,10 @@ class DataIngestor:
             normalize_location : bool = False,
             reduce_labels : bool = False,
             ignore_face : bool = False,
-            samples_limit : Optional[int] = None
+            samples_limit : Optional[int] = None,
+            test_size : float = 0.2
 
-        ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[Dict[int, str]]]:
         """
             Create the data to be feeded into the model
 
@@ -64,15 +81,17 @@ class DataIngestor:
                 the returning label vector will have only 10 columns
 
             # Return
-            (Training dataset, test dataset, training labels, test labels)
+            (Training dataset, test dataset, training labels, test labels, label map | None)
+            Where labelmap is a dict mapping from reduced labels to actual labels, if reduce_labels == True
         """
 
         # Configurable limit of frames used per video
         FRAME_CAP  = DataIngestor.MAX_SIGN_LEN if frame_limit is None else frame_limit
-        video_data = self._dataset_manager.train_numeric_dataset_client.retrieve_data()
+        video_data = self.retrieve_all()
 
         # Retrieve data 
         videos, labels = [], []
+
         for idx, (features, description) in enumerate( video_data ): 
             
             # Skip this row if does not matches predicate
@@ -105,11 +124,12 @@ class DataIngestor:
 
             elif rows > FRAME_CAP: 
                 # Make it smaller
-                features = features[:FRAME_CAP]
+                sample = np.random.choice([i for i in range(len(features))], FRAME_CAP, replace=False)
+                sample.sort()
+                features = features[sample]
 
             videos.append(features)
             labels.append(description.label)
-
             # Configurable video limit
             if video_limit is not None and idx == video_limit:
                 break
@@ -121,12 +141,14 @@ class DataIngestor:
         Y = to_categorical(labels).astype(int)
 
         if reduce_labels:
-            Y = self._reduce_labels(Y)
+            Y, labelmap = self._reduce_labels(Y)
+        else:
+            labelmap = None
 
-        X_TRAIN, X_TEST, Y_TRAIN, Y_TEST = train_test_split(X, Y, test_size=0.2)
-        return X_TRAIN, X_TEST, Y_TRAIN, Y_TEST
+        X_TRAIN, X_TEST, Y_TRAIN, Y_TEST = train_test_split(X, Y, test_size=test_size)
+        return X_TRAIN, X_TEST, Y_TRAIN, Y_TEST, labelmap
 
-    def _reduce_labels(self, labels : np.ndarray) -> np.ndarray:
+    def _reduce_labels(self, labels : np.ndarray) -> Tuple[np.ndarray, Dict[int, str]]:
         actual_labels = labels.argmax(1)
         labelset = {l for l in actual_labels}
         labelmap = { l: i for (i, l) in enumerate(labelset)}
@@ -136,7 +158,12 @@ class DataIngestor:
         for (i, l) in enumerate(actual_labels):
             new_labels[i, labelmap[l]] = 1
 
-        return new_labels
+        i_to_str_labelmap = self._dataset_manager.label_map
+        # Return labelmap to recover information about what label is what when we reduce labels 
+        labelmap = {i : i_to_str_labelmap[l] for (l, i) in labelmap.items() }
+
+
+        return new_labels, labelmap
 
 # TODO, include simmetric padding, and a better way to set padding up
 class FeatureTransformer:

@@ -8,7 +8,7 @@ import numpy as np
 
 # Local imports
 from slr.local_files.file_manager import FileManager
-from slr.dataset_manager.dataset_managers import DatasetManager
+from slr.dataset_manager.dataset_managers import MicrosoftDatasetManager
 
 
 class Labels:
@@ -18,7 +18,7 @@ class Labels:
 
     def __init__(self, file_manager : FileManager):
         self._file_manager = file_manager
-        self._dataset_manager = DatasetManager(file_manager)
+        self._dataset_manager = MicrosoftDatasetManager(file_manager)
         
     @property
     def file_manager(self) -> FileManager:
@@ -28,7 +28,7 @@ class Labels:
         return self._file_manager
 
     @property
-    def dataset_manager(self) -> DatasetManager:
+    def dataset_manager(self) -> MicrosoftDatasetManager:
         """
             Object to manage datasets locations and values
         """

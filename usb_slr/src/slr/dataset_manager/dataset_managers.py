@@ -4,6 +4,7 @@
 """
 
 # Third party imports
+import enum
 import logging
 import numpy as np
 from mediapipe.python.solutions.holistic import Holistic
@@ -211,7 +212,7 @@ class NumericDatasetClient:
                     continue
 
             # Check if sign file exists
-            file_path = self._get_vid_path_from_name(sign.file + ".mp4")
+            file_path = self._get_vid_path_from_name(sign.file + (".mp4" if not sign.file.endswith(".mp4") else ""))
             if not file_path.exists():
                 logging.warn(termcolor.colored(f"Could not parse video file {sign.file}, it does not exists. Skiping sign: {sign}", "yellow") )
                 continue
@@ -270,7 +271,7 @@ class NumericDatasetClient:
             # Get sign description
             yield self._load_vid_features(file), index_file['mappings'][file_num]
 
-class DatasetManager:
+class MicrosoftDatasetManager:
     """
         Use this class to run common operations for datasets stored locally
     """
@@ -327,7 +328,6 @@ class DatasetManager:
             Where the actual train videos are stored
         """
         return str(Path(self.file_manager.ms_dataset_dir, "train_vids"))
-
 
     @property
     def test_dataset_dir(self) -> str:
@@ -534,5 +534,101 @@ class DatasetManager:
 
         self._create_numeric_dataset(str(path), self.test_dataset_dir, model, descriptions, skip_if_in_index, display_vids)
 
+
+
+class PeruDatasetManager:
+    """Dataset manager to manage data from the peruvian dataset
+    """
+
+    def __init__(self, file_manager : FileManager = FileManager()):
+        self._file_manager = file_manager
+    
+    @property
+    def file_manager(self) -> FileManager:
+        return self._file_manager
+
+    @property 
+    def numeric_dataset_dir(self) -> str:
+        return str(Path(self.file_manager.peru_dataset_dir, "features"))
+    
+    @property
+    def dataset_dir(self) -> str:
+        return str(Path(self.file_manager.peru_dataset_dir, "dataset"))
+
+    @property
+    def labelmap(self) -> Dict[str, int]:
+        """Return a dict mapping from label name to actual label
+
+        Returns:
+            Dict[str, int]: Dict from label name to actual id
+        """
+        path = Path(self.file_manager.peru_dataset_dir, "classes.json")
+
+        # Sanity check
+        if not path.exists():
+            raise FileNotFoundError(f"'classes.json' file not found in {self.file_manager.peru_dataset_dir}. Have you succesfully loaded the dataset with slr load /path/to/zip?")
+
+        # load classes file from json
+        with path.open('r') as file:
+            classes_list = json.load(file)
+        
+        # Build and return labbelmap from this list 
+        return {label : i for (i, label) in enumerate(classes_list)}
+
+    @property
+    def numeric_dataset_dir(self) -> str:
+        """Returns a string with the path to the numeric dataset directory
+
+        Returns:
+            str: path to numeric dataset
+        """
+        return str(Path(self.dataset_dir, "numeric_dataset"))
+
+    def _file_to_sign_description(self, filepath : str) -> SignDescription:
+        """Generate a description for the name of a file
+
+        Args:
+            filepath (str): String with name of file 
+
+        Returns:
+            SignDescription: Description of sign related to this file 
+        """
+        path_to_vid = Path(filepath)
+
+        # Get filename without extension nor path
+        file_name = path_to_vid.stem
+
+        # split by space to remove trailing part with number and extension
+        # "buenos dias 2.mp4" -> ["buenos", "dias", "2.mp4"]
+        sign_name = file_name.split()
+        sign_name = sign_name[:len(sign_name) - 1]
+        sign_name = " ".join(sign_name)
+
+        # Map to correctly map sign name to id
+        labelmap = self.labelmap
+
+        if sign_name not in labelmap:
+            raise ValueError(f"Unrecognized label '{sign_name}', not in known labels: {list(labelmap.keys())}")
+
+        return SignDescription(
+            label=labelmap[sign_name], 
+            org_text=sign_name, 
+            clean_text=sign_name, 
+            text=sign_name, 
+            start_time=None, 
+            signer_id=None, 
+            signer=None, 
+            start=None, 
+            end = None, 
+            fps = None, 
+            file=filepath, 
+            height=None, 
+            width=None, 
+            end_time=None, 
+            review=None, 
+            box=[],
+            url = None)
+
+    
 
 

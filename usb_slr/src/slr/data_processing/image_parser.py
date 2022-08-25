@@ -279,6 +279,33 @@ class PoseGraph:
         """
         pose_graphs : List[PoseGraph] = graphs
 
+        velocity = PoseGraph.velocity_joints(pose_graphs)
+
+        # Normalize velocity, as colors should be in range 0,1
+        velocity = PoseGraph._normalize(velocity)
+
+        # Create channel color array
+        rows, cols, _ = velocity.shape
+        velocity_color = np.zeros((rows, cols, 3))
+        velocity_color[:,:,0] = velocity[:,:,0]
+        velocity_color[:,:,1] = velocity[:,:,1]
+
+        pose_graphs = pose_graphs[:len(pose_graphs) - 1]
+
+        return PoseGraph.as_trajectory_cv_img(pose_graphs, width, height, show_edges, joint_radius_px, intensity_fn= lambda _: 1, joint_color_array=velocity)
+
+    @staticmethod
+    def velocity_joints(signs : list) -> np.ndarray:
+        """Create an array from a list of pose grah (a sign) with the velocity for each joint, will return len(signs) - 1 graphs
+
+        Args:
+            signs (List[PoseGraph]): List of poses making a sign
+
+        Returns:
+            np.ndarray: An array with the velocity for each joint, with shape (len(signs-1), n_joints, 2)
+        """
+        pose_graphs : List[PoseGraph] = signs
+
         # Compute velocity from one frame to the next, ignore last frame and use starting
         # frame as position for color
         joints = [g.joints_array(True) for g in pose_graphs]
@@ -313,22 +340,7 @@ class PoseGraph:
                 # Now that we have the next non-zero joint, set velocity for this frame
                 velocity[frame_i][j] = next_joint - curr_joint
 
-        # Normalize velocity, as colors should be in range 0,1
-        velocity = PoseGraph._normalize(velocity)
-
-        # Create channel color array
-        rows, cols, _ = velocity.shape
-        velocity_color = np.zeros((rows, cols, 3))
-        velocity_color[:,:,0] = velocity[:,:,0]
-        velocity_color[:,:,1] = velocity[:,:,1]
-
-        pose_graphs = pose_graphs[:len(pose_graphs) - 1]
-
-        return PoseGraph.as_trajectory_cv_img(pose_graphs, width, height, show_edges, joint_radius_px, intensity_fn= lambda _: 1, joint_color_array=velocity)
-
-
-
-
+        return velocity
 
     @staticmethod
     def sign_to_imgs(sign : list, width : int = 512, height : int = 512, show_edges : bool = False, joint_radius_px : int = 3) -> List[np.ndarray]:
@@ -544,6 +556,51 @@ class PoseGraph:
 
         return arr
 
+    @staticmethod
+    def as_trajectory_cv_img_limb_colored(graphs :list, width : int = 512, height : int = 512, show_edges : bool = False, joint_radius_px : int = 3) -> np.ndarray:
+        """Generate a trajectory map colored by type of limb
+
+        Args:
+            graphs (list): List of graph defining gesture
+            width (int, optional): width of resulting image. Defaults to 512.
+            height (int, optional): height of resulting image. Defaults to 512.
+            show_edges (bool, optional): if should show edges of graph. Defaults to False.
+            joint_radius_px (int, optional): size of joints in image. Defaults to 3.
+
+        Returns:
+            np.ndarray: Image with a trajectory map colored in a way such that each limb 
+            (right hand, left hand, and pose) has a different color
+        """
+        
+        assert graphs, "Graph list should not be empty, can't plot empty sign"
+
+        rh_color = np.array([1,0,0])
+        lh_color = np.array([0,1,0])
+        pose_color = np.array([0,0,1])
+
+        pose_graphs : List[PoseGraph] = graphs
+        n_joints = pose_graphs[0].get_expected_joint_amount(include_face=False)
+
+        joint_color_array = np.zeros((n_joints, 3)) # rgb for every joint
+
+        # set color for each type of limb
+        i = 0
+        for _ in range(PoseValues.n_pose_nodes()):
+            joint_color_array[i] = pose_color
+            i += 1
+        
+        for _ in range(PoseValues.n_left_hand_nodes()):
+            joint_color_array[i] = lh_color
+            i += 1
+        
+        for _ in range(PoseValues.n_right_hand_nodes()):
+            joint_color_array[i] = rh_color
+            i += 1
+
+        joint_color_array = np.repeat(joint_color_array[np.newaxis, :, :], len(graphs), axis = 0)
+
+        return PoseGraph.as_trajectory_cv_img(graphs, width, height, show_edges, joint_radius_px, joint_color_array=joint_color_array) 
+
 
 @dataclasses.dataclass
 class PoseValues:
@@ -558,6 +615,22 @@ class PoseValues:
     face : np.ndarray # Size: 1404
     left_hand : np.ndarray # Size: 63
     right_hand : np.ndarray # Size: 63
+
+    @staticmethod
+    def n_face_nodes() -> int:
+        return 1404 // 3
+
+    @staticmethod
+    def n_left_hand_nodes() -> int:
+        return 63 // 3
+
+    @staticmethod
+    def n_right_hand_nodes() -> int:
+        return 63 // 3
+    
+    @staticmethod
+    def n_pose_nodes() -> int:
+        return 132 // 4
 
     @classmethod
     def from_mediapipe_result(cls, results : NamedTuple):

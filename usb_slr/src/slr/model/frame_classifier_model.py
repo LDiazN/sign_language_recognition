@@ -12,6 +12,7 @@ from slr.model.utils import compute_output_shape
 import torch.nn as nn
 import torch
 
+
 # Python imports
 from typing import List, Tuple
 
@@ -75,63 +76,75 @@ class FrameClassifier(nn.Module):
     """Model to classify frames to gestures
     """
 
-    def __init__(self, num_classes : int, image_size : int = 128) -> None:
+    def __init__(self, 
+        num_classes : int, 
+        image_size : int = 128, 
+        cnn_starting_channels : int = 10,
+        cnn_channel_increase_step : int = 2,
+        lstm_hidden_size : int = 64, 
+        lstm_num_layers : int = 2, 
+        n_frames : int = 80,
+        lstm_dropout : float = 0.6,
+        lstm_feature_len : int = 258,
+        fc_intermediate_size_1 : int = 256,
+        fc_intermediate_size_2 : int = 128,
+        ):
         super().__init__()
+
+        assert 0 < lstm_dropout < 1, "Dropout should be un range (0,1)"
 
         # Model setup
         self._num_classes = num_classes
 
 
         # Layers
-        self._bn = nn.BatchNorm2d(3)
+        #self._bn = nn.BatchNorm2d(3)
 
         self._cnn_seq_1 = nn.Sequential(
-            nn.Conv2d(3, 10, 8, 1), nn.ReLU(inplace=True),  nn.MaxPool2d(2,2), nn.BatchNorm2d(10), nn.Dropout(0.2), # MaxPool(2,2)
-            nn.Conv2d(10, 10, 1, 1), nn.ReLU(inplace=True),
-            nn.Conv2d(10, 12, 5, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(12), nn.Dropout(0.2),
-            nn.Conv2d(12, 14, 3, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(14), nn.Dropout(0.2), # MaxPool(2,2)
-            nn.Conv2d(14, 16, 3, 1), nn.ReLU(inplace=True), nn.BatchNorm2d(16), nn.Dropout(0.2),
-            nn.Conv2d(16, 18, 3, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(18), nn.Dropout(0.2), # MaxPool(2,2)
+            nn.Conv2d(3, cnn_starting_channels, 8, 1), nn.ReLU(inplace=True),  nn.MaxPool2d(2,2), nn.BatchNorm2d(cnn_starting_channels), nn.Dropout(0.2), # MaxPool(2,2)
+            nn.Conv2d(cnn_starting_channels, cnn_starting_channels, 1, 1), nn.ReLU(inplace=True),
+            nn.Conv2d(cnn_starting_channels, cnn_starting_channels + cnn_channel_increase_step, 5, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(cnn_starting_channels + cnn_channel_increase_step), nn.Dropout(0.2),
+            nn.Conv2d(cnn_starting_channels + cnn_channel_increase_step, cnn_starting_channels + 2*cnn_channel_increase_step, 3, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(cnn_starting_channels + 2*cnn_channel_increase_step), nn.Dropout(0.2), # MaxPool(2,2)
+            # nn.Conv2d(14, 16, 3, 1), nn.ReLU(inplace=True), nn.BatchNorm2d(16), nn.Dropout(0.2),
+            nn.Conv2d(cnn_starting_channels + 2*cnn_channel_increase_step, cnn_starting_channels + 3*cnn_channel_increase_step, 3, 1), nn.ReLU(inplace=True), nn.MaxPool2d(2,2), nn.BatchNorm2d(cnn_starting_channels + 3*cnn_channel_increase_step), nn.Dropout(0.2), # MaxPool(2,2)
         )
 
-        intermediate_output_size = 18*4*4
+        intermediate_output_size = (cnn_starting_channels + 3*cnn_channel_increase_step)*5*5 # 18, 5, 5
 
         self._lstm_seq = nn.Sequential(
-            nn.LSTM(input_size = 258, hidden_size = 32, num_layers = 2, batch_first = True),
+            nn.LSTM(input_size = lstm_feature_len, hidden_size = lstm_hidden_size, num_layers = lstm_num_layers, batch_first = True),
         )
 
         self._lstm_fc = nn.Sequential( 
-            nn.Linear(80 * 32, intermediate_output_size),
-            nn.Dropout(0.6)
+            nn.Linear(n_frames * lstm_hidden_size, intermediate_output_size), nn.Dropout(lstm_dropout), nn.Tanh()
         )
 
         self._fc = nn.Sequential(
-            nn.Linear(intermediate_output_size, 512), nn.Dropout(0.2), nn.Tanh(),
-            nn.Linear(512, 256), nn.Dropout(0.2), nn.Tanh(),
-            nn.Linear(256, num_classes), nn.Tanh()
+            nn.Linear(intermediate_output_size, fc_intermediate_size_1), nn.Dropout(0.2), nn.Tanh(),
+            nn.Linear(fc_intermediate_size_1, fc_intermediate_size_2), nn.Dropout(0.2), nn.Tanh(),
+            nn.Linear(fc_intermediate_size_2, num_classes)
         )
 
-        
     def forward(self, batch_of_images_and_vecs : Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
 
         batch_of_images, lstm_vecs = batch_of_images_and_vecs
 
-        y = self._bn(batch_of_images)
+        #y = self._bn(batch_of_images)
 
-        y = self._cnn_seq_1(y)
+        y = self._cnn_seq_1(batch_of_images)
 
         y = torch.flatten(y, 1)
 
         # -- < LSTM Block > ---------------------------
         y_lstm, _ = self._lstm_seq(lstm_vecs)
-        y_lstm = torch.tanh(y_lstm)
-        y_lstm = torch.flatten(y_lstm, start_dim=1)
-        y_lstm = self._lstm_fc(y_lstm)
+        y_lstm = torch.tanh(y_lstm) # (batch, keyframes, feature_len) 
+        y_lstm = torch.flatten(y_lstm, start_dim=1) # (batch,  keyframes * feature_len)
+        y_lstm = self._lstm_fc(y_lstm) # 
         # ---------------------------------------------
 
         y = self._fc(y)
         y_lstm = self._fc(y_lstm)
-
-        y = (y + y_lstm)/2 # element wise mean
+    
+        y = (y + y_lstm) / 2 # element wise mean
 
         return torch.softmax(y, 1)

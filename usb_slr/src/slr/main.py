@@ -8,7 +8,7 @@ from pathlib import Path
 # Local imports 
 from slr.config import settings
 from slr.local_files.file_manager import FileManager
-from slr.dataset_manager.dataset_managers import DatasetManager
+from slr.dataset_manager.dataset_managers import MicrosoftDatasetManager
 
 # Third party imports
 import click
@@ -32,7 +32,7 @@ def fetch(dataset : str):
     """
         Fetch datasets. 
     """
-    mngr = DatasetManager()
+    mngr = MicrosoftDatasetManager()
 
     if dataset == 'train':
         mngr.download_train_dataset() 
@@ -60,15 +60,13 @@ def generate_numeric(dataset : str, display : bool = False):
 
     from mediapipe.python.solutions.holistic import Holistic
     with Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5) as holistic:
-        ds_manager = DatasetManager()
+        ds_manager = MicrosoftDatasetManager()
         funcs = {
             "train" : ds_manager.create_train_numeric_dataset,
             "test"  : ds_manager.create_test_numeric_dataset,
             "eval"  : ds_manager.create_val_numeric_dataset
         }
         funcs[dataset](holistic, display_vids=display) 
-
-
 
 
 @usb_slr.group()
@@ -93,6 +91,23 @@ def ms(path : str):
         client.file_manager.store_ms_dataset(path)
     except ValueError as e:
         click.echo(f"Could not load given dataset '{path}'. Error: {e}", err=True)
+
+@load.command()
+@click.argument("path", nargs=1, required=True)
+def peru(path : str):
+    """
+        Load a zip containing videos for the peru sign language dataset used for this research project
+
+        Arguments:
+            - path : str = path to a zip file containing videos for the peruvian dataset
+    """
+    client = CLIClient()
+
+    try:
+        client.file_manager.store_peru_dataset(path)
+    except ValueError as e:
+        click.echo(f"Could not load given dataset '{path}'. Error: {e}", err=True)
+
 
 class CLIClient:
     """

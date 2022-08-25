@@ -27,6 +27,12 @@ class FileManager:
         return str(Path(self._home_dir, "ms_dataset"))
     
     @property
+    def peru_dataset_dir(self) -> str:
+        """Returns path to peru dataset in local filesystem
+        """
+        return str(Path(self._home_dir, "peru_dataset"))
+
+    @property
     def ms_dataset_description_dir(self) -> str:
         """
             Returns the path to the microsoft dataset description dir, usually inside the
@@ -55,3 +61,20 @@ class FileManager:
                 ms_dir_path.mkdir(parents=True)
             zip_ref.extractall(self.ms_dataset_dir)
 
+    def store_peru_dataset(self, path : str):
+        """Store in local files the peru dataset files from a zip containing compressed videos conforming this dataset
+
+        Args:
+            path (str): Path to compressed file with videos to store
+        """
+        # Consistency check
+        zip_path = Path(path)
+        if not zip_path.exists():
+            raise ValueError(f"Provided path to peru zip dataset is not a valid path or it does not exists. Path: {path}")
+
+        # Unzip files
+        with zipfile.ZipFile(path, 'r') as zip_ref:
+            peru_dir_path = Path(self.peru_dataset_dir, "dataset")
+            if not peru_dir_path.exists():
+                peru_dir_path.mkdir(parents=True)
+            zip_ref.extractall(self.peru_dataset_dir)
