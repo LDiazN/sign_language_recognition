@@ -47,6 +47,11 @@ class VideoConverter:
         """
             Parse pose values from provided image from start second to end second
         """
+        start_second = start_second or 0
+        if not end_second:
+            fps = video.get(cv2.CAP_PROP_FPS)      # OpenCV v2.x used "CV_CAP_PROP_FPS"
+            frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+            end_second = frame_count/fps
         assert end_second > start_second, "Inconsistent video bounds"
 
         # Get video fps count

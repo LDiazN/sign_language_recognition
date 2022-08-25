@@ -236,12 +236,14 @@ class NumericDatasetClient:
             Create a feature matrix from a single, returning an array with the shape (number_of_frames, 1662), 
             1662 is the size of a frame data vector.
         """
+        filename = sign.file + ".mp4" if  not sign.file.endswith(".mp4") else sign.file
+        path = Path(filename)
+        if not path.is_absolute:
+            path = self._get_vid_path_from_name(filename)
 
-        file_path = self._get_vid_path_from_name(sign.file + ".mp4")
+        assert path.exists(), f"Create row function assumes that the file does exists. Provided path: {path}"
 
-        assert file_path.exists(), "Create row function assumes that the file does exists"
-
-        data = video_converter.parse_video_from_file(str(file_path), sign.start_time, sign.end_time, display_video, sign.fps)
+        data = video_converter.parse_video_from_file(str(path), sign.start_time, sign.end_time, display_video, sign.fps)
         as_arrays = [d.concatenated() for d in data]
 
         return np.array(as_arrays)
@@ -546,10 +548,6 @@ class PeruDatasetManager:
     @property
     def file_manager(self) -> FileManager:
         return self._file_manager
-
-    @property 
-    def numeric_dataset_dir(self) -> str:
-        return str(Path(self.file_manager.peru_dataset_dir, "features"))
     
     @property
     def dataset_dir(self) -> str:
@@ -562,7 +560,7 @@ class PeruDatasetManager:
         Returns:
             Dict[str, int]: Dict from label name to actual id
         """
-        path = Path(self.file_manager.peru_dataset_dir, "classes.json")
+        path = Path(self.dataset_dir, "classes.json")
 
         # Sanity check
         if not path.exists():
@@ -582,7 +580,27 @@ class PeruDatasetManager:
         Returns:
             str: path to numeric dataset
         """
-        return str(Path(self.dataset_dir, "numeric_dataset"))
+        return str(Path(self.file_manager.peru_dataset_dir, "numeric_dataset"))
+
+    def create_numeric_dataset(self, model : Holistic, skip_if_in_index : bool = True, display_vids : bool = False):
+        """Create a numeric dataset based on the currently stored vids
+        """
+        # Traverse for each file in the dataset dir  and generate a description for each
+        pattern = str(Path(self.dataset_dir)) + "/*.mp4"
+        description = []
+        for file in glob.glob(pattern, recursive=False):
+            description.append(self._file_to_sign_description(file))
+        
+        # Check existence, and create if not exists
+        path = Path(self.numeric_dataset_dir)
+        if not path.exists():
+            path.mkdir(parents=True)
+
+        # Create client and generate numeric dataset        
+        numeric_client = NumericDatasetClient(str(path), self.dataset_dir)
+        numeric_client.save_sign_features_from_description(description, model, display_vids=display_vids, skip_if_in_index=skip_if_in_index)
+        
+        
 
     def _file_to_sign_description(self, filepath : str) -> SignDescription:
         """Generate a description for the name of a file

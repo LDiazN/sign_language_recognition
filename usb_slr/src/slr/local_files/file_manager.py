@@ -77,4 +77,4 @@ class FileManager:
             peru_dir_path = Path(self.peru_dataset_dir, "dataset")
             if not peru_dir_path.exists():
                 peru_dir_path.mkdir(parents=True)
-            zip_ref.extractall(self.peru_dataset_dir)
+            zip_ref.extractall(peru_dir_path)

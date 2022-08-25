@@ -8,10 +8,11 @@ from pathlib import Path
 # Local imports 
 from slr.config import settings
 from slr.local_files.file_manager import FileManager
-from slr.dataset_manager.dataset_managers import MicrosoftDatasetManager
+from slr.dataset_manager.dataset_managers import MicrosoftDatasetManager, PeruDatasetManager
 
 # Third party imports
 import click
+from traitlets import default
 
 
 @click.group()
@@ -43,10 +44,15 @@ def fetch(dataset : str):
     else:
         click.echo(f"Invalid dataset name: {dataset}.") 
     
-@usb_slr.command()
+@usb_slr.group()
+def generate_numeric():
+    """Generate numeric dataset
+    """
+
+@generate_numeric.command()
 @click.argument("dataset", nargs=1, required=True)
 @click.option("--display", default=False, help="Display video processing, showing the video itself and the skeletal mesh")
-def generate_numeric(dataset : str, display : bool = False):
+def ms_dataset(dataset : str, display : bool = False):
     """
         Generate a numeric dataset and store it locally. The specified dataset should be one of 
         "train", "test", "eval"
@@ -67,6 +73,17 @@ def generate_numeric(dataset : str, display : bool = False):
             "eval"  : ds_manager.create_val_numeric_dataset
         }
         funcs[dataset](holistic, display_vids=display) 
+
+@generate_numeric.command()
+@click.option("--display", default=False, help="Display video processing, showing the video itself and the skeletal mesh")
+def peru_dataset(display : bool = False):
+    """Generate a numeric dataset and store it locally
+    """
+    from mediapipe.python.solutions.holistic import Holistic
+    with Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5) as holistic:
+        ds_manager = PeruDatasetManager()
+        ds_manager.create_numeric_dataset(holistic, display_vids=display)
+
 
 
 @usb_slr.group()
