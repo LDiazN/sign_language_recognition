@@ -273,7 +273,12 @@ class NumericDatasetClient:
             # Get sign description
             yield self._load_vid_features(file), index_file['mappings'][file_num]
 
-class MicrosoftDatasetManager:
+class DatasetManager:
+    """Base class for dataset managers
+    """
+
+    
+class MicrosoftDatasetManager(DatasetManager):
     """
         Use this class to run common operations for datasets stored locally
     """
@@ -538,7 +543,7 @@ class MicrosoftDatasetManager:
 
 
 
-class PeruDatasetManager:
+class PeruDatasetManager(DatasetManager):
     """Dataset manager to manage data from the peruvian dataset
     """
 
@@ -554,7 +559,7 @@ class PeruDatasetManager:
         return str(Path(self.file_manager.peru_dataset_dir, "dataset"))
 
     @property
-    def labelmap(self) -> Dict[str, int]:
+    def labelmap_inverse(self) -> Dict[str, int]:
         """Return a dict mapping from label name to actual label
 
         Returns:
@@ -574,6 +579,10 @@ class PeruDatasetManager:
         return {label : i for (i, label) in enumerate(classes_list)}
 
     @property
+    def label_map(self) -> Dict[int, str]:
+        return {i:l for (l,i) in self.labelmap_inverse.items()}
+
+    @property
     def numeric_dataset_dir(self) -> str:
         """Returns a string with the path to the numeric dataset directory
 
@@ -581,6 +590,10 @@ class PeruDatasetManager:
             str: path to numeric dataset
         """
         return str(Path(self.file_manager.peru_dataset_dir, "numeric_dataset"))
+
+    @property
+    def numeric_dataset_client(self) -> NumericDatasetClient:
+        return NumericDatasetClient(str(self.numeric_dataset_dir), self.dataset_dir)
 
     def create_numeric_dataset(self, model : Holistic, skip_if_in_index : bool = True, display_vids : bool = False):
         """Create a numeric dataset based on the currently stored vids
@@ -597,7 +610,7 @@ class PeruDatasetManager:
             path.mkdir(parents=True)
 
         # Create client and generate numeric dataset        
-        numeric_client = NumericDatasetClient(str(path), self.dataset_dir)
+        numeric_client = self.numeric_dataset_client
         numeric_client.save_sign_features_from_description(description, model, display_vids=display_vids, skip_if_in_index=skip_if_in_index)
         
         
@@ -623,7 +636,7 @@ class PeruDatasetManager:
         sign_name = " ".join(sign_name)
 
         # Map to correctly map sign name to id
-        labelmap = self.labelmap
+        labelmap = self.labelmap_inverse
 
         if sign_name not in labelmap:
             raise ValueError(f"Unrecognized label '{sign_name}', not in known labels: {list(labelmap.keys())}")
