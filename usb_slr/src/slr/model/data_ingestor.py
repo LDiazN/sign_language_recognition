@@ -12,7 +12,7 @@ from tensorflow.keras.utils import to_categorical # type: ignore
 from sklearn.model_selection import train_test_split
 
 # Local imports 
-from slr.dataset_manager.dataset_managers import MicrosoftDatasetManager, SignDescription
+from slr.dataset_manager.dataset_managers import DatasetManager, MicrosoftDatasetManager, PeruDatasetManager, SignDescription
 from slr.local_files.file_manager import FileManager
 from slr.model.labels import Labels
 
@@ -30,10 +30,10 @@ class DataIngestor:
     # that defaults to 0, with higher length will be truncated
     MAX_SIGN_LEN = 80
 
-    def __init__(self, file_manager : FileManager = FileManager()):
+    def __init__(self, file_manager : FileManager = FileManager(), dataset_manager : Optional[DatasetManager] = None):
         self._labels = Labels(file_manager)
         self._file_manager = file_manager
-        self._dataset_manager = MicrosoftDatasetManager(file_manager)
+        self._dataset_manager = dataset_manager or MicrosoftDatasetManager(file_manager)
 
     def retrieve_all(self) -> Iterable[Tuple[np.ndarray, SignDescription]]:
         """Retrieve all information in the provided dataset
@@ -41,15 +41,19 @@ class DataIngestor:
         Returns:
             Iterable[Tuple[np.ndarray, SignDescription]]: All information available in the dataset, train, test, or valid
         """
+        if isinstance(self._dataset_manager, MicrosoftDatasetManager):
+            for x in self._dataset_manager.train_numeric_dataset_client.retrieve_data():
+                yield x
+            
+            for x in self._dataset_manager.val_numeric_dataset_client.retrieve_data():
+                yield x
 
-        for x in self._dataset_manager.train_numeric_dataset_client.retrieve_data():
-            yield x
-        
-        for x in self._dataset_manager.val_numeric_dataset_client.retrieve_data():
-            yield x
-
-        for x in self._dataset_manager.test_numeric_dataset_client.retrieve_data():
-            yield x
+            for x in self._dataset_manager.test_numeric_dataset_client.retrieve_data():
+                yield x
+        elif isinstance(self._dataset_manager, PeruDatasetManager):
+            for x in self._dataset_manager.numeric_dataset_client.retrieve_data():
+                yield x
+            
 
     @property
     def labels(self) -> Labels:
