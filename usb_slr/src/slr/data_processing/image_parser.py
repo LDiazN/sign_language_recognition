@@ -136,7 +136,8 @@ class PoseGraph:
         bounding_box : Optional[Tuple[float, float, float, float]] = None,
         joint_color : Optional[Tuple[float, float, float]] = None,
         joint_color_intensity : Optional[np.ndarray] = None,
-        joint_color_array : Optional[np.ndarray] = None
+        joint_color_array : Optional[np.ndarray] = None,
+        edge_color : Tuple[float, float, float] = (0,1,0)
         ) -> np.ndarray:
         """Draw this graph in a CV image
 
@@ -145,7 +146,6 @@ class PoseGraph:
         """
 
         JOINT_COLOR = (1,0,0)
-        EDGE_COLOR = (0,1,0)
 
         # Set up color function to select color of node: ignore joint color
         # array if a single color is provided. If any is provided, set fixed color 
@@ -172,7 +172,6 @@ class PoseGraph:
         original_h = max_y - min_y
         original_w = max_x - min_x
         aspect_ratio = original_h/original_w
-
 
         # Transform point to the correct coordinate system
         def to_img(x : float, y : float) -> Tuple[float, float]:
@@ -209,9 +208,46 @@ class PoseGraph:
                 if not valid(*p1_img) or not valid(*p2_img):
                     continue
 
-                cv2.line(img, p1_img, p2_img, EDGE_COLOR, 2)
+                cv2.line(img, p1_img, p2_img, edge_color, 2)
 
         return img
+
+    @staticmethod
+    def as_edge_trajectory_cv_img(
+            graphs : list, 
+            width : int = 512, 
+            height : int = 512, 
+            edge_color : Tuple[float, float, float] = (1, 0, 0),
+            intensity_fn : Optional[Callable[[int], float]]  = None,
+        ) -> np.ndarray:
+        """Generate a trajectory map with just edges (no joints)
+
+        Args:
+            graphs (list): Sign as a list of poses (graphs)
+            width (int, optional): horizontal size of image. Defaults to 512.
+            height (int, optional): vertical size of image. Defaults to 512.
+            edge_color (Tuple[float, float, float], optional): Color of edges. Defaults to (1, 0, 0).
+
+        Returns:
+            np.ndarray: cv2 image with shape (width, height, 3)
+        """
+        pose_graphs : List[PoseGraph] = graphs
+
+        # fing overall bounding box
+        min_x, max_x, min_y, max_y = PoseGraph._bounding_box_from_sign(pose_graphs)
+
+        # Generate images with edges but no joints (joint radius = 0)
+        imgs = (g.as_cv_img(width, height, True, 0, bounding_box=(min_x, max_x, min_y, max_y), edge_color=edge_color) for g in pose_graphs)
+
+        # Compute color incresing for each graph 
+        n_frames = len(pose_graphs)
+        intensity_fn = intensity_fn or (lambda i: (1. / n_frames) * (i + 1)) 
+        result = np.zeros((width, height, 3))
+        for (i, img) in enumerate(imgs):
+            result += intensity_fn(i) *  img
+
+        return result
+
 
     @staticmethod
     def as_trajectory_cv_img(
