@@ -942,11 +942,10 @@ class ImageParser:
                                 mp_drawing.DrawingSpec(color=(245,66,230), thickness=2, circle_radius=2)
                                 ) 
 
-    def run_from_webcam(self):
+    def run_from_video_capture(self, cap : cv2.VideoCapture):
         """
-            Run a parsing from webcam, useful for testing purposes
+            Run a parsing from the specified capture, useful for testing purposes
         """
-        cap = cv2.VideoCapture(0)
 
         # Set mediapipe model
         while cap.isOpened():
@@ -963,6 +962,9 @@ class ImageParser:
             if cv2.waitKey(10) & 0xFF == ord('q'):
                 break
 
+    def run_from_webcam(self):
+        cap = cv2.VideoCapture(0)
+        self.run_from_video_capture(cap)
         # Free resources
         cap.release()
         cv2.destroyAllWindows()
