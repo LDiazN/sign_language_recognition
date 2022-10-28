@@ -8,7 +8,7 @@ from pathlib import Path
 # Local imports 
 from slr.config import settings
 from slr.local_files.file_manager import FileManager
-from slr.dataset_manager.dataset_managers import MicrosoftDatasetManager, PeruDatasetManager
+from slr.dataset_manager.dataset_managers import ArgentinaDatasetManager, MicrosoftDatasetManager, PeruDatasetManager
 
 # Third party imports
 import click
@@ -84,8 +84,11 @@ def peru_dataset(display : bool = False):
         ds_manager = PeruDatasetManager()
         ds_manager.create_numeric_dataset(holistic, display_vids=display)
 
-
-
+@generate_numeric.command()
+@click.option("--display", default=False, help="Display video processing, showing the video itself and the skeletal mesh")
+def argentina_dataset(display : bool = False):
+    """Generate a numeric dataset and store it locally
+    """
 @usb_slr.group()
 def load():
     """
@@ -122,6 +125,22 @@ def peru(path : str):
 
     try:
         client.file_manager.store_peru_dataset(path)
+    except ValueError as e:
+        click.echo(f"Could not load given dataset '{path}'. Error: {e}", err=True)
+
+@load.command()
+@click.argument("path", nargs=1, required=True)
+def argentina(path : str):
+    """
+        Load a zip containing videos for the argentina sign language dataset used for this research project
+
+        Arguments:
+            - path : str = path to a zip file containing videos for the argentinavian dataset
+    """
+    client = CLIClient()
+
+    try:
+        client.file_manager.store_argentina_dataset(path)
     except ValueError as e:
         click.echo(f"Could not load given dataset '{path}'. Error: {e}", err=True)
 

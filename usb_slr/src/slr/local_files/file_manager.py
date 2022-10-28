@@ -4,6 +4,8 @@
 # Python imports
 from pathlib import Path
 import zipfile
+import glob
+import shutil
 
 # Local imports 
 from slr.config import settings
@@ -31,6 +33,12 @@ class FileManager:
         """Returns path to peru dataset in local filesystem
         """
         return str(Path(self._home_dir, "peru_dataset"))
+
+    @property
+    def argentina_dataset_dir(self) -> str:
+        """Returns path to argentina dataset in local filesystem
+        """
+        return str(Path(self._home_dir, "argentina_dataset"))
 
     @property
     def ms_dataset_description_dir(self) -> str:
@@ -78,3 +86,28 @@ class FileManager:
             if not peru_dir_path.exists():
                 peru_dir_path.mkdir(parents=True)
             zip_ref.extractall(peru_dir_path)
+
+    def store_argentina_dataset(self, path : str):
+        """Store in local files the argentina dataset files from a zip containing compressed videos conforming this dataset
+
+        Args:
+            path (str): Path to compressed file with videos to store
+        """
+        # Consistency check
+        zip_path = Path(path)
+        if not zip_path.exists():
+            raise ValueError(f"Provided path to peru zip dataset is not a valid path or it does not exists. Path: {path}")
+
+        # Unzip files
+        with zipfile.ZipFile(path, 'r') as zip_ref:
+            argentina_dir_path = Path(self.argentina_dataset_dir, "dataset")
+            if not argentina_dir_path.exists():
+                argentina_dir_path.mkdir(parents=True)
+            zip_ref.extractall(argentina_dir_path)
+        
+        # Now that we unzipped the file, we have to move the content to the right dir
+        all_path = Path(argentina_dir_path, 'all')
+        for file in glob.glob(f"{all_path}/*"):
+            shutil.move(file, argentina_dir_path)
+        
+        all_path.rmdir()

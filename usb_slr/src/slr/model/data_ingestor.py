@@ -12,7 +12,7 @@ from tensorflow.keras.utils import to_categorical # type: ignore
 from sklearn.model_selection import train_test_split
 
 # Local imports 
-from slr.dataset_manager.dataset_managers import DatasetManager, MicrosoftDatasetManager, PeruDatasetManager, SignDescription
+from slr.dataset_manager.dataset_managers import ArgentinaDatasetManager, DatasetManager, MicrosoftDatasetManager, PeruDatasetManager, SignDescription
 from slr.local_files.file_manager import FileManager
 from slr.model.labels import Labels
 
@@ -28,7 +28,7 @@ class DataIngestor:
     
     # Maximum ammount of rows for a sign. Signs with a shorter length will be given a configurable padding
     # that defaults to 0, with higher length will be truncated
-    MAX_SIGN_LEN = 80
+    MAX_SIGN_LEN = 200
 
     def __init__(self, file_manager : FileManager = FileManager(), dataset_manager : Optional[DatasetManager] = None):
         self._labels = Labels(file_manager)
@@ -50,9 +50,11 @@ class DataIngestor:
 
             for x in self._dataset_manager.test_numeric_dataset_client.retrieve_data():
                 yield x
-        elif isinstance(self._dataset_manager, PeruDatasetManager):
+        elif isinstance(self._dataset_manager, (PeruDatasetManager, ArgentinaDatasetManager)):
             for x in self._dataset_manager.numeric_dataset_client.retrieve_data():
                 yield x
+        else:
+            assert False, "Unsupported Dataset"
             
 
     @property
@@ -171,7 +173,7 @@ class DataIngestor:
 
 # TODO, include simmetric padding, and a better way to set padding up
 class FeatureTransformer:
-    """ Convenient class to manage different types of padding over bidimentional feature arrays"""
+    """ Convenient class to manage different types of padding over bidimentional feature arrays """
 
     def __init__(self, limit : int) : 
         self.LIMIT  = limit

@@ -5,6 +5,7 @@
 
 # Third party imports
 import enum
+from inspect import stack
 import logging
 import numpy as np
 from mediapipe.python.solutions.holistic import Holistic
@@ -612,8 +613,6 @@ class PeruDatasetManager(DatasetManager):
         # Create client and generate numeric dataset        
         numeric_client = self.numeric_dataset_client
         numeric_client.save_sign_features_from_description(description, model, display_vids=display_vids, skip_if_in_index=skip_if_in_index)
-        
-        
 
     def _file_to_sign_description(self, filepath : str) -> SignDescription:
         """Generate a description for the name of a file
@@ -661,5 +660,177 @@ class PeruDatasetManager(DatasetManager):
             url = None)
 
     
+class ArgentinaDatasetManager:
+    """Dataset for Argentinan ASL, more about it here:
+        http://facundoq.github.io/datasets/lsa64/
+    """
 
+    def __init__(self, file_manager : FileManager = FileManager()):
+        self._file_manager = file_manager
+    
+    @property
+    def file_manager(self) -> FileManager:
+        return self._file_manager
 
+    @property
+    def dataset_dir(self) -> str:
+        return str(Path(self.file_manager.argentina_dataset_dir, "dataset"))
+
+    @property
+    def numeric_dataset_dir(self) -> str:
+        """Returns a string with the path to the numeric dataset directory
+
+        Returns:
+            str: path to numeric dataset
+        """
+        return str(Path(self.file_manager.argentina_dataset_dir, "numeric_dataset"))
+
+    @property
+    def numeric_dataset_client(self) -> NumericDatasetClient:
+        return NumericDatasetClient(str(self.numeric_dataset_dir), self.dataset_dir)
+
+    @property
+    def label_map(self) -> Dict[int, str]:
+        """List with a list of words, such that word i has id i 
+        """
+        # Hardcoded here since there's no file provided with a dataset description
+        return { i + 1 : s for (i, s) in enumerate([
+            "Opaque",
+            "Red",
+            "Green",
+            "Yellow",
+            "Bright",
+            "Light-blue",
+            "Colors",
+            "Pink",
+            "Women",
+            "Enemy",
+            "Son",
+            "Man",
+            "Away",
+            "Drawer",
+            "Born",
+            "Learn",
+            "Call",
+            "Skimmer",
+            "Bitter",
+            "Sweet milk",
+            "Milk",
+            "Water",
+            "Food",
+            "Argentina",
+            "Uruguay",
+            "Country",
+            "Last name",
+            "Where",
+            "Mock",
+            "Birthday",
+            "Breakfast",
+            "Photo",
+            "Hungry",
+            "Map",
+            "Coin",
+            "Music",
+            "Ship",
+            "None",
+            "Name",
+            "Patience",
+            "Perfume",
+            "Deaf",
+            "Trap",
+            "Rice",
+            "Barbecue",
+            "Candy",
+            "Chewing-gum",
+            "Spaghetti",
+            "Yogurt",
+            "Accept",
+            "Thanks",
+            "Shut down",
+            "Appear",
+            "To land",
+            "Catch",
+            "Help",
+            "Dance",
+            "Bathe",
+            "Buy",
+            "Copy",
+            "Run",
+            "Realize",
+            "Give",
+            "Find",
+        ])
+        }
+
+    @property
+    def labelmap_inverse(self) -> Dict[str, int]:
+        """Return a dict mapping from string to id
+
+        Returns:
+            Dict[str, int]: dict mapping from string to id
+        """
+        return { s : i for (i, s) in  self.label_map.items() }
+
+    def _file_to_sign_description(self, filepath : str) -> SignDescription:
+        """Generate a description for the name of a file
+
+        Args:
+            filepath (str): String with name of file 
+
+        Returns:
+            SignDescription: Description of sign related to this file 
+        """
+        path_to_vid = Path(filepath)
+
+        # Get filename without extension nor path
+        file_name = path_to_vid.stem
+
+        # split by '_' since names of files have the following format:
+        # <sign-id>_<signed-id>_<repetition-id>
+        sign_id, signer_id, _ = file_name.split('_')
+        sign_id = int(sign_id)
+
+        # Map to correctly map sign name to id
+        labelmap = self.label_map
+
+        if sign_id > len(labelmap):
+            raise ValueError(f"Unrecognized label '{sign_id}', not in known labels")
+
+        print(sign_id)
+
+        return SignDescription(
+            label=sign_id, 
+            org_text=labelmap[sign_id], 
+            clean_text=labelmap[sign_id], 
+            text=labelmap[sign_id], 
+            start_time=None, 
+            signer_id=sign_id, 
+            signer=sign_id, 
+            start=None, 
+            end = None, 
+            fps = None, 
+            file=filepath, 
+            height=None, 
+            width=None, 
+            end_time=None, 
+            review=None, 
+            box=[],
+            url = None)
+
+    def create_numeric_dataset(self, model : Holistic, skip_if_in_index : bool = True, display_vids : bool = False):
+        """Create a numeric dataset based on the currently stored vids
+        """
+        # Traverse for each file in the dataset dir  and generate a description for each
+        pattern = str(Path(self.dataset_dir)) + "/*.mp4"
+        description = []
+        for file in glob.glob(pattern, recursive=False):
+            description.append(self._file_to_sign_description(file))
+        
+        # Check existence, and create if not exists
+        path = Path(self.numeric_dataset_dir)
+        if not path.exists():
+            path.mkdir(parents=True)
+
+        # Create client and generate numeric dataset        
+        numeric_client = self.numeric_dataset_client
+        numeric_client.save_sign_features_from_description(description, model, display_vids=display_vids, skip_if_in_index=skip_if_in_index)

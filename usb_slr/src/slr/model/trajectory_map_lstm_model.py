@@ -154,7 +154,7 @@ class DataPreprocessor:
         image_size_y : int = 256, 
         joint_pos_radius = 2, 
         process_type : str = "default",
-        n_frames : int = 80) -> Tuple[torch.Tensor, torch.Tensor]:
+        n_frames : int = 30) -> Tuple[torch.Tensor, torch.Tensor]:
         """Process many signs into a single torch tensor
 
         Args:
@@ -252,8 +252,8 @@ class TMLSTMCLassifier(nn.Module):
         cnn_starting_channels : int = 10,
         cnn_channel_increase_step : int = 2,
         lstm_hidden_size : int = 64, 
-        lstm_num_layers : int = 2, 
-        n_frames : int = 80,
+        lstm_num_layers : int = 1, 
+        n_frames : int = 30,
         lstm_dropout : float = 0.6,
         lstm_feature_len : int = 258,
         fc_intermediate_size_1 : int = 256,
@@ -286,7 +286,7 @@ class TMLSTMCLassifier(nn.Module):
         )
 
         self._lstm_fc = nn.Sequential( 
-            nn.Linear(n_frames * lstm_hidden_size, intermediate_output_size), nn.Dropout(lstm_dropout), nn.Tanh()
+            nn.Linear(n_frames * lstm_hidden_size, intermediate_output_size), nn.Dropout(lstm_dropout), nn.LeakyReLU()
         )
 
         self._fc = nn.Sequential(
@@ -307,7 +307,7 @@ class TMLSTMCLassifier(nn.Module):
 
         # -- < LSTM Block > ---------------------------
         y_lstm, _ = self._lstm_seq(lstm_vecs)
-        y_lstm = torch.tanh(y_lstm) # (batch, keyframes, feature_len) 
+        y_lstm = nn.LeakyReLU()(y_lstm) # (batch, keyframes, feature_len) 
         y_lstm = torch.flatten(y_lstm, start_dim=1) # (batch,  keyframes * feature_len)
         y_lstm = self._lstm_fc(y_lstm) # 
         # ---------------------------------------------
