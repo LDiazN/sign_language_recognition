@@ -11,7 +11,7 @@ import torch
 from torch.utils.data import TensorDataset, DataLoader, Dataset, ConcatDataset, SubsetRandomSampler
 from torch.utils.tensorboard import SummaryWriter
 import tqdm
-from torchmetrics import Accuracy
+from torchmetrics import Accuracy, ConfusionMatrix
 from sklearn.model_selection import KFold
 from stringcolor import cs
 import itertools
@@ -19,6 +19,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import wandb
 from torch.optim.lr_scheduler import StepLR,_LRScheduler
+import pandas as pd
 
 # Python imports
 from dataclasses import dataclass, asdict
@@ -32,7 +33,8 @@ from datetime import datetime
 class TrainResult:
     """Result after a training process
     """
-
+    loss_history : pd.DataFrame
+    acc_history  : pd.DataFrame
     best_loss_on_validation : float
     best_acc_on_validation : float
     best_loss_on_train : float
@@ -40,6 +42,8 @@ class TrainResult:
     n_epochs : int
     n_classes : int
     train_duration : float 
+    seed : int
+    confusion_matrix : np.ndarray
 
     def as_report(self) -> str:
         """Return a human-readable version of this data
@@ -97,7 +101,7 @@ class Trainer:
         data as input.
     """
 
-    def __init__(self, model : nn.Module, train_data : Dataset, valid_data : Dataset, loss_fn : nn.CrossEntropyLoss = nn.CrossEntropyLoss(), optimizer : Optional[torch.optim.Optimizer] = None, experiment_name : str = "sign_lang_recognition", batch_size : int = 10, acceptance_th = 0.5, use_wandb : bool = False, lr_scheduler : Optional[_LRScheduler] = None):
+    def __init__(self, model : nn.Module, train_data : Dataset, valid_data : Dataset, n_classes : int, loss_fn : nn.CrossEntropyLoss = nn.CrossEntropyLoss(), optimizer : Optional[torch.optim.Optimizer] = None, experiment_name : str = "sign_lang_recognition", batch_size : int = 10, acceptance_th = 0.5, use_wandb : bool = False, lr_scheduler : Optional[_LRScheduler] = None):
         self._model = model
         self._train_data = train_data
         self._valid_data = valid_data
@@ -108,6 +112,7 @@ class Trainer:
         self._acceptance_th = acceptance_th
         self._use_wandb = use_wandb
         self._lr_scheduler = lr_scheduler
+        self._n_classes = n_classes
 
 
     def train_one_epoch(self, 
@@ -140,7 +145,7 @@ class Trainer:
 
         n_batches = 0 # Use element count to compute avg loss and accuracy
 
-        accuracy_counter = Accuracy(acceptance_th)
+        accuracy_counter = Accuracy(acceptance_th, task="multiclass", num_classes=self._n_classes)
 
         for i, data in enumerate(train_data):
             inputs, labels = data
@@ -171,6 +176,7 @@ class Trainer:
 
 
         accuracy = accuracy_counter.compute().item()
+        accuracy_counter.reset()
         loss_gathered /=  n_batches
 
         return (accuracy, loss_gathered)
@@ -183,7 +189,8 @@ class Trainer:
         valid_dataloader : Optional[DataLoader] = None, 
         optim : Optional[torch.optim.Optimizer] = None,
         model : Optional[nn.Module] = None,
-        train_title : Optional[str] = None
+        train_title : Optional[str] = None,
+        save_stats_history : bool = False
         ) -> TrainResult:
         """Run a training process for the specified amount of epochs
 
@@ -224,7 +231,11 @@ class Trainer:
         best_train_loss = float('inf')
         best_train_acc = -1.
 
-        accuracy_counter = Accuracy(threshold=acceptance_th)
+        accuracy_counter = Accuracy(threshold=acceptance_th, task="multiclass", num_classes=self._n_classes)
+
+        # History Stats in case if needed
+        loss_history = pd.DataFrame({"train" : [], "validation" : []})
+        accuracy_history = pd.DataFrame({"train" : [], "validation" : []})
 
         # Main training loop
         iter = tqdm.tqdm(range(n_epochs))
@@ -251,13 +262,15 @@ class Trainer:
 
                     outputs = model(inputs)
 
-                    accuracy_counter.update(outputs, labels.argmax(1))
+                    labels_ids = labels.argmax(1)
+                    accuracy_counter.update(outputs, labels_ids)
 
                     valid_loss += loss_fn(outputs, labels).item()
 
                     n_batches += 1
 
             valid_acc = accuracy_counter.compute().item()
+            accuracy_counter.reset()
             valid_loss /= n_batches 
 
             iter.set_description(f"[Epoch: {i+1} / {n_epochs}] Train Acc: {round(avg_acc,4)} | Train Loss: {round(avg_loss,4)} | Val Acc: {round(valid_acc,4)} | Val Loss: {round(valid_loss,4)}")
@@ -266,10 +279,14 @@ class Trainer:
             writer.add_scalars('Training vs. Validation Loss',
                     { 'Training' : avg_loss, 'Validation' : valid_loss },
                     i + 1)
-            
+                
             writer.add_scalars('Training vs. Validation Accuracy',
                     { 'Training' : avg_acc, 'Validation' : valid_acc },
                     i + 1)
+            # Save history if requested so
+            if save_stats_history:
+                loss_history = loss_history.append(pd.DataFrame({"train" : [avg_loss], "validation" : [valid_loss]}), ignore_index=True)
+                accuracy_history = accuracy_history.append(pd.DataFrame({"train" : [avg_acc], "validation" : [valid_acc]}), ignore_index=True)
             writer.flush()
 
             # Log if needed
@@ -290,15 +307,20 @@ class Trainer:
 
         timer.stop()
         print(f"Training finished, best loss on validation: {best_loss}, best accuracy on validation {best_acc}")
-
+        
+        conf_matrix = self.confusion_matrix(valid_dataloader).cpu().numpy()
         result = TrainResult(
+            loss_history=loss_history,
+            acc_history=accuracy_history,
             best_loss_on_validation=best_loss,
             best_acc_on_validation=best_acc,
             best_loss_on_train=best_train_loss,
             best_acc_on_train=best_train_acc,
             n_epochs=n_epochs,
             n_classes=self._valid_data._labels.shape[1],
-            train_duration=timer.time_elapsed()
+            train_duration=timer.time_elapsed(),
+            seed = torch.seed(),
+            confusion_matrix=conf_matrix
         )
 
         return result 
@@ -322,11 +344,10 @@ class Trainer:
         return int((pred_labels == actual_labels).float().sum().item())
 
     def train_k_folds(self, 
-                    model_class : Type[nn.Module], 
                     optimizer_fn : Callable[[], torch.optim.Optimizer],
-                    model_args : Dict[str, Any], 
                     k_folds : int = 5, 
                     n_epochs : int = 10, 
+                    save_stats_history : bool = False
                 ) -> List[TrainResult]:
         """Run a k-folds training session.
 
@@ -347,7 +368,7 @@ class Trainer:
 
         for fold_i, (train_ids, valid_ids) in enumerate(kfold.split(dataset)):
             
-            print(f"-- < Fold {fold_i} > -----------------------")
+            print(f"-- < Fold {fold_i + 1} > -----------------------")
 
             # Create samplers to select which rows will be used during training
             train_subsampler = SubsetRandomSampler(train_ids)
@@ -372,6 +393,7 @@ class Trainer:
                 optim=optim, 
                 train_dataloader=train_dataloader, 
                 acceptance_th=self._acceptance_th,
+                save_stats_history=save_stats_history
                 )
             results.append(result)
 
@@ -392,7 +414,7 @@ class Trainer:
                 layer.reset_parameters()
 
     @torch.no_grad()
-    def compute_predictions(self) -> torch.Tensor:
+    def compute_predictions(self, dataloader : Optional[DataLoader] = None) -> torch.Tensor:
         """Compute all predictions usign the provided validation data 
 
         Returns:
@@ -400,46 +422,39 @@ class Trainer:
             Size: (val_data.nrows)
         """
         results = torch.tensor([])
-        dataloader = DataLoader(self._valid_data)
+        dataloader = dataloader or DataLoader(self._valid_data)
         model = self._model
-        for (input, _) in dataloader:
-            guess = model(input)
-            results = torch.cat([results, guess])
+        results = torch.concat([model(x) for (x, _) in dataloader])
 
         results = torch.argmax(results, axis=1)
 
         return results
 
     @torch.no_grad()
-    def confusion_matrix(self) -> torch.Tensor:
+    def confusion_matrix(self, dataloader : Optional[DataLoader] = None) -> torch.Tensor:
         
+        d = dataloader or DataLoader(self._valid_data, batch_size=1000000000)
         # Compute model predictions
-        preds = self.compute_predictions()
+        true_y = []
+        pred_y = []
+        for (x,y) in d:
+            true_y.append(y)
+            pred_y.append(self._model(x))
+
+        true_y = torch.argmax( torch.concat(true_y), dim=1)
+        pred_y = torch.argmax(torch.concat(pred_y), dim=1)
+
+        assert true_y.shape == pred_y.shape
+
+        n_classes = self._n_classes
+        conf_matrix_builder = ConfusionMatrix(n_classes, task="multiclass")
+
+        return conf_matrix_builder(pred_y, true_y)
+
+    def plot_confusion_matrix(self, cm : np.ndarray,  classes : np.ndarray, labelmap : Dict[int,str], normalize : bool = False, title : str ="Matriz de confusión", cmap = plt.cm.Blues, file_to_save : Optional[str] = None):
         
-        # Compute labels 
-        d = DataLoader(self._valid_data, batch_size=1000000)
-        labels = torch.tensor([])
-
-        for (_, labs) in d:
-            labels = labs
-        
-        _, n_classes = labels.shape
-        labels = torch.argmax(labels, axis=1)
-
-        assert labels.shape == preds.shape
-
-        # Build pairs and confusion matrix itself\
-        pairs = torch.stack([preds, labels], axis=1)
-        conf_matrix = torch.zeros((n_classes, n_classes))
-
-        for (y_pred, y) in pairs:
-            conf_matrix[y_pred, y] += 1
-
-        return conf_matrix
-
-    def plot_confusion_matrix(self, cm : np.ndarray,  classes : np.ndarray, labelmap : Dict[int,str], normalize : bool = False, title : str ="Confusion Matrix", cmap = plt.cm.Blues):
-        
-        cm = np.array(cm.cpu())
+        if isinstance(cm, torch.Tensor):
+            cm = np.array(cm.cpu())
         if normalize:
             cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
             print("Normalized confusion matrix")
@@ -453,7 +468,7 @@ class Trainer:
         plt.title(title)
         plt.colorbar()
         tick_marks = np.arange(len(classes))
-        plt.xticks(tick_marks, [labelmap[i] for i in classes], rotation=45)
+        plt.xticks(tick_marks, [labelmap[i] for i in classes], rotation=90)
         plt.yticks(tick_marks, [labelmap[i] for i in classes])
 
         fmt = '.2f' if normalize else 'd'
@@ -462,8 +477,12 @@ class Trainer:
             plt.text(j, i, "", horizontalalignment="center", color="white" if cm[i, j] > thresh else "black")
 
         plt.tight_layout()
-        plt.ylabel('True label')
-        plt.xlabel('Predicted label')
+        plt.ylabel('Verdadera clase')
+        plt.xlabel('Clase predicha')
+
+        # Save if requested so 
+        if file_to_save:
+            plt.savefig(file_to_save)
 
 class ScopedTimer:
     """Simple timer that will count how much time is spend in the function where it's created

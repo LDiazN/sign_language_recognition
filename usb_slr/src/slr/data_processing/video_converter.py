@@ -57,8 +57,6 @@ class VideoConverter:
         # Get video fps count
         fps : float = vid_fps or video.get(cv2.CAP_PROP_FPS)
 
-        total = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
-
         # Get initial and final frame index
         start_frame = int(start_second * fps)
         end_frame = int(end_second * fps)

@@ -71,7 +71,8 @@ class DataPreprocessor:
 
         return result 
 
-    def process_limb_colored(self, sign : List[PoseValues], include_face : bool = False, image_size_x : int = 256, image_size_y : int = 256, joint_pos_radius = 2) -> torch.Tensor:
+    @staticmethod
+    def process_limb_colored(sign : List[PoseValues], include_face : bool = False, image_size_x : int = 256, image_size_y : int = 256, joint_pos_radius = 2) -> torch.Tensor:
         """Process dataset so that the resulting training data will be trajectory maps images colored by limb
 
         Args:
@@ -99,8 +100,6 @@ class DataPreprocessor:
         img = torch.from_numpy(
                 img
             ).cuda()
-
-        # Create variance grap
 
         return img 
 
@@ -180,10 +179,12 @@ class DataPreprocessor:
         for tensor in lstm_tensors:
             shape = tensor.shape
             frames, word_len = shape
-            if n_frames - frames != 0:
+            if n_frames > frames:
                 tensor = torch.cat([tensor, torch.zeros((n_frames - frames, word_len))])
                 shape = tensor.shape
-
+            elif n_frames < frames:
+                tensor = tensor[:n_frames]
+                shape = tensor.shape
             # Pad remainind space with zeros
             lstm_data = torch.cat([lstm_data, tensor.reshape((1, *shape))])
 
@@ -251,9 +252,9 @@ class TMLSTMCLassifier(nn.Module):
         image_size : int = 128, 
         cnn_starting_channels : int = 10,
         cnn_channel_increase_step : int = 2,
-        lstm_hidden_size : int = 64, 
-        lstm_num_layers : int = 1, 
-        n_frames : int = 30,
+        lstm_hidden_size : int = 32, 
+        lstm_num_layers : int = 2, 
+        n_frames : int = 80,
         lstm_dropout : float = 0.6,
         lstm_feature_len : int = 258,
         fc_intermediate_size_1 : int = 256,
@@ -286,7 +287,7 @@ class TMLSTMCLassifier(nn.Module):
         )
 
         self._lstm_fc = nn.Sequential( 
-            nn.Linear(n_frames * lstm_hidden_size, intermediate_output_size), nn.Dropout(lstm_dropout), nn.LeakyReLU()
+            nn.Linear(n_frames * lstm_hidden_size, intermediate_output_size), nn.Dropout(lstm_dropout), nn.LeakyReLU(negative_slope=0.01)
         )
 
         self._fc = nn.Sequential(

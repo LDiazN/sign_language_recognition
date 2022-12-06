@@ -400,7 +400,7 @@ class MicrosoftDatasetManager(DatasetManager):
 
         # Start download
         yt = YoutubeDownloader(self.train_dataset_dir)
-        train_dataset_desc = self.read_train_dataset()
+        train_dataset_desc = self.read_train_dataset_description()
         yt.download([x.url for x in train_dataset_desc], filenames=[x.file + ".mp4" for x in train_dataset_desc])
 
     def download_test_dataset(self):
@@ -414,7 +414,7 @@ class MicrosoftDatasetManager(DatasetManager):
 
         # Start download
         yt = YoutubeDownloader(self.test_dataset_dir)
-        test_dataset_desc = self.read_test_dataset()
+        test_dataset_desc = self.read_test_dataset_description()
         yt.download([x.url for x in test_dataset_desc], filenames=[x.file + ".mp4" for x in test_dataset_desc])
 
     def download_val_dataset(self):
@@ -428,7 +428,7 @@ class MicrosoftDatasetManager(DatasetManager):
 
         # Start download
         yt = YoutubeDownloader(self.val_dataset_dir)
-        val_dataset_desc = self.read_val_dataset()
+        val_dataset_desc = self.read_val_dataset_description()
         yt.download([x.url for x in val_dataset_desc], filenames=[x.file + ".mp4" for x in val_dataset_desc])
 
     def _read_dataset_description(self, dataset_description_json_path : str) -> List[SignDescription]:
@@ -453,19 +453,19 @@ class MicrosoftDatasetManager(DatasetManager):
         
         return [ SignDescription.from_dict(d) for d in json_list ]
 
-    def read_val_dataset(self) -> List[SignDescription]:
+    def read_val_dataset_description(self) -> List[SignDescription]:
         """
             Return a list of sign description from the validation dataset
         """
         return self._read_dataset_description(str(Path(self.file_manager.ms_dataset_description_dir, self.val_dataset_name)))
     
-    def read_train_dataset(self) -> List[SignDescription]:
+    def read_train_dataset_description(self) -> List[SignDescription]:
         """
             Return a list of sign description from the training dataset
         """
         return self._read_dataset_description(str(Path(self.file_manager.ms_dataset_description_dir, self.train_dataset_name)))
 
-    def read_test_dataset(self) -> List[SignDescription]:
+    def read_test_dataset_description(self) -> List[SignDescription]:
         """
             Return a list of sign description from the test dataset
         """
@@ -510,7 +510,7 @@ class MicrosoftDatasetManager(DatasetManager):
             path.mkdir(parents=True)
         
         # load descriptions
-        descriptions = self.read_val_dataset()
+        descriptions = self.read_val_dataset_description()
 
         self._create_numeric_dataset(str(path), self.val_dataset_dir, model, descriptions, skip_if_in_index, display_vids)
 
@@ -524,7 +524,7 @@ class MicrosoftDatasetManager(DatasetManager):
             path.mkdir(parents=True)
         
         # load descriptions
-        descriptions = self.read_train_dataset()
+        descriptions = self.read_train_dataset_description()
 
         self._create_numeric_dataset(str(path), self.train_dataset_dir, model, descriptions, skip_if_in_index, display_vids)
 
@@ -538,7 +538,7 @@ class MicrosoftDatasetManager(DatasetManager):
             path.mkdir(parents=True)
         
         # load descriptions
-        descriptions = self.read_test_dataset()
+        descriptions = self.read_test_dataset_description()
 
         self._create_numeric_dataset(str(path), self.test_dataset_dir, model, descriptions, skip_if_in_index, display_vids)
 
@@ -834,3 +834,16 @@ class ArgentinaDatasetManager:
         # Create client and generate numeric dataset        
         numeric_client = self.numeric_dataset_client
         numeric_client.save_sign_features_from_description(description, model, display_vids=display_vids, skip_if_in_index=skip_if_in_index)
+
+    def list_video_files(self) -> List[str]:
+        """Return a list with paths to video files
+
+        Returns:
+            List[str]: A list of file paths
+        """
+        pattern = str(Path(self.dataset_dir)) + "/*.mp4"
+        result = []
+        for file in glob.glob(pattern, recursive=False):
+            result.append(file)
+
+        return result
