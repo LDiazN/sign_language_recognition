@@ -57,11 +57,11 @@ data_frame_dict = {
 
 # compute median, mean and variance for each class
 for (class_name, data) in class_diffs.items():
-    mean = np.mean(data)
-    median = np.median(data)
-    std_dev = np.std(data)
-    mini = np.min(data)
-    maxi = np.max(data)
+    mean = round(np.mean(data), 4)
+    median = round(np.median(data), 4)
+    std_dev = round(np.std(data), 4)
+    mini = round(np.min(data), 4)
+    maxi = round(np.max(data), 4)
 
     data_frame_dict["Clase"].append(class_name)
     data_frame_dict["Promedio"].append(mean)

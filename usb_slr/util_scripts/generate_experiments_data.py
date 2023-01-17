@@ -129,7 +129,6 @@ def filter_ms(features : np.ndarray, description : SignDescription) -> bool:
                 99,
                 16][:N_CLASSES_MS]
     
-
     return description.label in allowed and len(features) > 0
 
 def filter_argentina(features : np.ndarray, description : SignDescription) -> bool:
@@ -283,7 +282,7 @@ from slr.model.trainer import Trainer
 
 
 N_LABELS_MS = tensor_val_y.shape[1]
-N_EPOCHS = 2000
+N_EPOCHS = 50
 K_FOLDS = 6
 
 # Model to train
@@ -310,7 +309,8 @@ results = trainer.train_k_folds(
     optim, 
     n_epochs=N_EPOCHS, 
     k_folds=K_FOLDS,
-    save_stats_history=True
+    save_stats_history=True,
+    profile_model=True
     )
 
 # Write results into a file
