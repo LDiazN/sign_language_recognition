@@ -13,6 +13,9 @@ En este repositorio se encuentra el código fuente de nuestro trabajo de tesis d
 <img src="img/concatenación de vectores aplanados (1).png" alt="Creación de un mapa de trayectoria" style="display: block; margin: 0 auto"/>
 
 Estas dos nuevas representaciones se pasan a un modelo de dos canales que procesa el mapa de trayectoria con un módulo CNN para obtener características espaciales, y la matriz de características con un módulo LSTM para obtener características temporales. Finalmente, el resultado de ambos módulos se procesa y se agrega usando la operación de promedio término a término.
+
+<img src="img/diagrama modelo propuesto (2).png" alt="Creación de un mapa de trayectoria" style="display: block; margin: 0 auto"/>
+
 ## Entrenamiento
 El entrenamiento se realizó con las bases de datos: [MS-ASL](https://www.microsoft.com/en-us/download/confirmation.aspx?id=100121), [LSA64](http://facundoq.github.io/datasets/lsa64/). Obteniendo los siguientes resultados:
 
