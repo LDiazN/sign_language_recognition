@@ -9,7 +9,7 @@ Estas dos nuevas representaciones se pasan a un modelo de dos canales que proces
 ## Entrenamiento
 El entrenamiento se realizó con las bases de datos: [MS-ASL](https://www.microsoft.com/en-us/download/confirmation.aspx?id=100121), [LSA64](http://facundoq.github.io/datasets/lsa64/). Obteniendo los siguientes resultados:
 
-El entrenamiento se realizó en una tarjeta gráfica Nvidia RTX 2060 de 6GB de RAM. 
+El entrenamiento se realizó en una tarjeta gráfica Nvidia GeForce RTX 2060 de 6GB de RAM. 
 
 ## Instalación
 La aplicación usa [Poetry](https://python-poetry.org) como manejador de paquetes, para instalarla es suficiente con clonar este repositorio, cambiar de directorio a la carpeta `usb_slr` y ejecutar el comando `poetry install`. Una vez termine el proceso de instalación, se habrá añadido un programa de línea de comandos `slr` que sirve para realizar operaciones comunes. 
