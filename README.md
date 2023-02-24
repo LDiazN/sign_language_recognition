@@ -22,7 +22,7 @@ El entrenamiento se realizó con las bases de datos: [MS-ASL](https://www.micros
 El entrenamiento se realizó en una tarjeta gráfica Nvidia GeForce RTX 2060 de 6GB de RAM. 
 
 ## Instalación
-La aplicación usa [Poetry](https://python-poetry.org) como manejador de paquetes, para instalarla es suficiente con clonar este repositorio, cambiar de directorio a la carpeta `usb_slr` y ejecutar el comando `poetry install`. Una vez termine el proceso de instalación, se habrá añadido un programa de línea de comandos `slr` que sirve para realizar operaciones comunes. 
+La aplicación usa [Poetry](https://python-poetry.org) como manejador de paquetes, para instalarla es suficiente con clonar este repositorio, cambiar de directorio a la carpeta `usb_slr` y ejecutar el comando `poetry install`. Una vez termine el proceso de instalación, se habrá añadido un programa de línea de comandos `slr` que sirve para realizar operaciones comunes. También se puede importar como una librería para tener acceso a sus componentes individuales usando `import slr` desde Python. 
 
 ## Uso
 La aplicación provista en este repositorio incluye una herramienta de línea de comandos que sirve como interfaz para operaciones comunes sobre las bases de datos, como cargar datos, procesarlos, y ejecutar un entrenamiento.
