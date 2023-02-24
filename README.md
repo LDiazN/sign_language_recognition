@@ -1,6 +1,6 @@
 # Reconocimiento de lenguaje de señas aislado
 
-![Arquitectura general del proceso propuesto](img/pipeline\ overview.png)
+<img src="img/pipeline overview.png" alt="Estructura general del proceso" style="center"/>
 
 En este repositorio se encuentra el código fuente de nuestro trabajo de tesis de grado en la Universidad Simón Bolívar. Para este proyecto se desarrolló un sistema de reconocimiento de lenguaje de señas aislado a nivel de _Gloss_. Dado un vídeo con una ejecución de una seña, se retorna la clase predicha para esta seña. El proceso consiste en extraer anotaciones esqueléticas para cada fotograma el video usando estimación de pose con [Mediapipe](https://mediapipe.dev), y luego representar la secuencia de grafos esqueléticos de dos formas distintas:
 
