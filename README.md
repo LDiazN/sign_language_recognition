@@ -17,7 +17,11 @@ Estas dos nuevas representaciones se pasan a un modelo de dos canales que proces
 <img src="img/diagrama modelo propuesto (2).png" alt="Creación de un mapa de trayectoria" style="display: block; margin: 0 auto"/>
 
 ## Entrenamiento
-El entrenamiento se realizó con las bases de datos: [MS-ASL](https://www.microsoft.com/en-us/download/confirmation.aspx?id=100121), [LSA64](http://facundoq.github.io/datasets/lsa64/). Obteniendo los siguientes resultados:
+El entrenamiento se realizó con los conjuntos de datos: [MS-ASL](https://www.microsoft.com/en-us/download/confirmation.aspx?id=100121) (un subconjunto de 20/1000 clases), [LSA64](http://facundoq.github.io/datasets/lsa64/) (un subconjunto de 32/64 clases). Se usó entrenamiento por _K Folds_ con k = 6, obteniendo los siguientes resultados:
+
+
+
+Obteniendo los siguientes resultados:
 
 El entrenamiento se realizó en una tarjeta gráfica Nvidia GeForce RTX 2060 de 6GB de RAM. 
 
