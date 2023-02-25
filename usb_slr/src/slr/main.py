@@ -3,16 +3,18 @@
 """
 
 # Python imports
+from ast import expr_context
+from codecs import ignore_errors
 from pathlib import Path
+from typing import Optional
 
 # Local imports 
 from slr.config import settings
 from slr.local_files.file_manager import FileManager
-from slr.dataset_manager.dataset_managers import ArgentinaDatasetManager, MicrosoftDatasetManager, PeruDatasetManager
+from slr.dataset_manager.dataset_managers import MicrosoftDatasetManager, PeruDatasetManager
 
 # Third party imports
 import click
-from traitlets import default
 
 
 @click.group()
@@ -143,6 +145,76 @@ def argentina(path : str):
         client.file_manager.store_argentina_dataset(path)
     except ValueError as e:
         click.echo(f"Could not load given dataset '{path}'. Error: {e}", err=True)
+
+
+@usb_slr.command()
+def train(
+    dataset : str, 
+    output_dir : str, 
+    profile_model : bool = False, 
+    num_epochs : int = 2000, 
+    num_folds : int = 6, 
+    cache_dir : Optional[str] = None, 
+    num_classes : Optional[int] = None,
+    num_frames : Optional[int] = None,
+    use_mobilenet : bool = False
+    ):
+    """Run a training with the specified configuration
+    """
+
+    # Sanity check
+    valid_datasets = ["ms", "peru", "lsa64"]
+    if dataset not in valid_datasets:
+        click.echo(f"Invalid dataset: {dataset}, available options: {', '.join(valid_datasets)}", err=True)
+        return
+    
+    # Set up num_classes, if not provided, take a default depending on selected dataset. 
+    if num_classes is None:
+        num_classes = {
+            "ms" : 20,
+            "lsa64" : 32,
+            "peru" : 5
+        }[dataset]
+
+    # We do the same with num_frames as we did with num_classes,
+    # we perform a sanity check and then we select the valid default if required 
+    if num_frames is not None and num_frames <= 0:
+        click.echo(f"Invalid number of frames: {num_frames}", err = True)
+
+    if num_frames is None:
+        num_frames = {
+            "ms" : 60,
+            "peru" : 80,
+            "lsa64" : 200
+        }[dataset]
+
+    # Try to create output dir
+    output_dir_path = Path(output_dir)
+    try:
+        if not output_dir_path.exists():
+            output_dir_path.mkdir(parents=True)
+    except Exception as e:
+        click.echo(f"Could not create output path dir: {output_dir_path}. Error: {e}", err= True)
+    
+    # Check cache dir 
+    if cache_dir is not None:
+
+        # If file exists but is not dir, raise an error
+        # If dir does not exists, create it
+        cache_dir_path = Path(cache_dir)
+        if (cache_dir_path.exists() and not cache_dir_path.is_dir()):
+            click.echo(f"Can't store cache in non-dir file: {cache_dir}", err = True)
+            return
+        elif not cache_dir_path.exists():
+            try:
+                cache_dir_path.mkdir(parents=True)
+            except Exception as e:
+                click.echo(f"Could not create cache dir: {cache_dir}. Error: {e}", err=True)
+                return
+    
+    
+
+
 
 
 class CLIClient:

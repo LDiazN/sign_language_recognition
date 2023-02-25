@@ -628,11 +628,10 @@ class PeruDatasetManager(DatasetManager):
         # Get filename without extension nor path
         file_name = path_to_vid.stem
 
-        # split by space to remove trailing part with number and extension
-        # "buenos dias 2.mp4" -> ["buenos", "dias", "2.mp4"]
-        sign_name = file_name.split()
-        sign_name = sign_name[:len(sign_name) - 1]
-        sign_name = " ".join(sign_name)
+        # split by underscore to remove trailing part with number and extension
+        # "buenos dias_2.mp4" -> ["buenos dias", "2.mp4"]
+        sign_name = file_name.split("_")
+        sign_name = sign_name[0]
 
         # Map to correctly map sign name to id
         labelmap = self.labelmap_inverse

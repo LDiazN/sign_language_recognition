@@ -72,7 +72,6 @@ class DataIngestor:
             ignore_face : bool = False,
             samples_limit : Optional[int] = None,
             test_size : float = 0.2
-
         ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[Dict[int, str]]]:
         """
             Create the data to be feeded into the model

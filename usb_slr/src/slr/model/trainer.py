@@ -4,6 +4,7 @@
 """
 
 # Third party imports
+from collections import defaultdict
 from typing import  Callable, Dict, List, Tuple, Optional
 import torch.nn as nn
 import torch
@@ -43,6 +44,18 @@ class ProfileResult:
     n_calls : int
     # in mb
     model_size : float 
+    # Amount of model parameters
+    n_params : int
+
+    def __str__(self) -> str:
+        result = f"Average CPU time: {self.avg_cpu_time}ms\n"
+        result += f"FLOPS: {self.flops}\n"
+        result += f"Batch size: {self.batch_size}\n"
+        result += f"Number of calls: {self.n_calls}\n"
+        result += f"Model size: {self.model_size}mb\n"
+        result += f"Amount of parameters: {self.n_params}\n"
+        return result
+
 
 @dataclass
 class TrainResult:
@@ -85,7 +98,11 @@ class TrainResult:
         result += f"\t- Best {loss_str} on {train_str}: {str(cs(self.best_loss_on_train, 'blue'))}\n"
         result += f"\t- Best {acc_str} on {train_str}: {TrainResult._get_color_for_acc(self.best_acc_on_train)}\n"
         result += f"Training time: {cs(str(round(self.train_duration, 3)), 'purple')}\n"
-    
+
+        if self.profile_result:
+            result += f"🕦  -- < Model profiling > -------------  🕦\n"
+            result += str(self.profile_result)
+            
         return result
 
     @staticmethod
@@ -469,7 +486,7 @@ class Trainer:
             true_y.append(y)
             pred_y.append(self._model(x))
 
-        true_y = torch.argmax( torch.concat(true_y), dim=1)
+        true_y = torch.argmax(torch.concat(true_y), dim=1)
         pred_y = torch.argmax(torch.concat(pred_y), dim=1)
 
         assert true_y.shape == pred_y.shape
@@ -515,7 +532,6 @@ class Trainer:
     def profile(self) -> ProfileResult:
         """Measure model performance for the currently stored model
         """
-
         
         data = [(x_1.to("cpu"), x_2.to("cpu")) for ((x_1, x_2),_) in  ConcatDataset([self._train_data, self._valid_data])]
         batch_size = 16
@@ -550,7 +566,47 @@ class Trainer:
         size_all_mb = (param_size + buffer_size) / 1024**2
         # ------------------------------------
 
-        return ProfileResult(np.mean(flop_counts) / 1000, np.mean(flop_counts), batch_size, len(cpu_times),size_all_mb)
+        # Count model parameters
+        n_params = sum(p.numel() for p in self._model.parameters())
+
+        data = [(x_1.to("cuda"), x_2.to("cuda")) for ((x_1, x_2),_) in  ConcatDataset([self._train_data, self._valid_data])]
+        self._model.to(old_device)
+        return ProfileResult(np.mean(cpu_times) / 1000, np.mean(flop_counts), batch_size, len(cpu_times), size_all_mb, n_params)
+
+    def compute_acc_per_class(self,  labelmap : Dict[int, str], dataloader : Optional[DataLoader] = None) -> pd.DataFrame:
+        """Compute a dataframe with accuracy per class
+
+        Returns:
+            pd.DataFrame: Dataframe with information about accuracy per class 
+        """
+        d = dataloader or DataLoader(self._valid_data, batch_size=1000000000)
+        # Compute model predictions
+        true_y = []
+        pred_y = []
+        for (x,y) in d:
+            true_y.append(y)
+            pred_y.append(self._model(x))
+
+        true_y = torch.argmax(torch.concat(true_y), dim=1)
+        pred_y = torch.argmax(torch.concat(pred_y), dim=1)
+
+        # maps from class to how many right guesses we got
+        class_to_acc = defaultdict(lambda: {"repetitions" : 0, "correct" : 0})
+
+        for (t_y, p_y) in zip(true_y, pred_y):
+            keyword = labelmap[int(t_y)]
+            class_to_acc[keyword]["correct"] += int(p_y == t_y)
+            class_to_acc[keyword]["repetitions"] += 1
+        
+        # Create dict for dataframe
+        df_dict = {"class" : [], "acc" : []}
+        
+        for (k, v) in class_to_acc.items():
+            df_dict['class'].append(k)
+            df_dict["acc"].append(v["correct"] / v["repetitions"])
+        
+        return pd.DataFrame(df_dict)
+
 
 class ScopedTimer:
     """Simple timer that will count how much time is spend in the function where it's created

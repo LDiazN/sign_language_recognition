@@ -85,7 +85,7 @@ class FileManager:
             peru_dir_path = Path(self.peru_dataset_dir, "dataset")
             if not peru_dir_path.exists():
                 peru_dir_path.mkdir(parents=True)
-            zip_ref.extractall(peru_dir_path)
+            zip_ref.extractall(path=str(peru_dir_path))
 
     def store_argentina_dataset(self, path : str):
         """Store in local files the argentina dataset files from a zip containing compressed videos conforming this dataset
