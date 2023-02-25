@@ -11,7 +11,6 @@ from slr.dataset_manager.dataset_managers import SignDescription, ArgentinaDatas
 from slr.model.trainer import TrainResult
 from slr.model.utils import Cacher
 from slr.model.data_ingestor import DataIngestor, FeatureTransformer
-from slr.model.trajectory_map_lstm_model import DataPreprocessor 
 from slr.data_processing.image_parser import PoseValues
 from slr.model.trainer import Trainer
 
@@ -411,7 +410,7 @@ class TMLSTMCLassifierMobilenet(nn.Module):
 
         return torch.softmax(y, 1)
 
-class TMLSTMClassifier:
+class TMLSTMClassifierTrainer:
     """
     Main class for performing the entire training workflow with this model, intended to be used 
     by the training command
@@ -468,6 +467,7 @@ class TMLSTMClassifier:
         # if we want to use cuda
         self._use_cuda = torch.cuda.is_available()
         self._model = TMLSTMCLassifier(num_classes, n_frames = num_frames) if not use_mobilenet else TMLSTMCLassifierMobilenet(num_classes, n_frames = num_frames)
+        self._model.to("cuda")
 
     def run(self):
         """
@@ -503,7 +503,7 @@ class TMLSTMClassifier:
             "tensor_val_y" : tensor_val_y
         }
 
-        cache_processed = Cacher(self._process_data, cache_name=str(self.cached_processed_data_file), args=args)
+        cache_processed = Cacher(self._process_data, cache_name= "processed_data", cache_path=str(self._cache_dir), args=args)
         tensor_train_x, tensor_train_y, tensor_val_x, tensor_val_y, lstm_tensor_train_x, lstm_tensor_val_x = cache_processed.get()
 
         # Now save images used for training
@@ -535,7 +535,7 @@ class TMLSTMClassifier:
         """
 
         # Generate data to train depending on using cache or not
-        cacher = Cacher(self._generate_data, str(self.cached_data_file), cache_path=str(self._cache_dir))
+        cacher = Cacher(self._generate_data, "train_data",  cache_path=str(self._cache_dir))
         X_train, X_val, Y_train, Y_val, label_map = cacher.get()
 
         # Sanity check
@@ -547,13 +547,13 @@ class TMLSTMClassifier:
         return X_train, X_val, Y_train, Y_val, label_map
         
     def _generate_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[Dict[int, str]]]:
-        if self._dataset == "MS":
+        if self._dataset == "ms":
             dataset_manager = MicrosoftDatasetManager()
             filter_fn = self._filter_ms
-        elif self._dataset == "PERU":
+        elif self._dataset == "peru":
             dataset_manager = PeruDatasetManager()
             filter_fn = lambda a, b: True
-        elif self._dataset == "SLA64":
+        elif self._dataset == "lsa64":
             dataset_manager = ArgentinaDatasetManager()
             filter_fn = self._filter_lsa64
         else:
@@ -725,7 +725,7 @@ class TMLSTMClassifier:
         """
         # Create output dir if not exists
         images_output_dir = self.images_output_dir
-        images_output_dir.mkdir(parents=True)
+        images_output_dir.mkdir(parents=True, exist_ok=True)
 
         output_dict = defaultdict(lambda: 0)
 

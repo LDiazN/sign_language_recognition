@@ -3,8 +3,6 @@
 """
 
 # Python imports
-from ast import expr_context
-from codecs import ignore_errors
 from pathlib import Path
 from typing import Optional
 
@@ -15,6 +13,7 @@ from slr.dataset_manager.dataset_managers import MicrosoftDatasetManager, PeruDa
 
 # Third party imports
 import click
+from traitlets import default
 
 
 @click.group()
@@ -148,18 +147,32 @@ def argentina(path : str):
 
 
 @usb_slr.command()
+@click.argument("dataset", nargs = 1, required = True)
+@click.argument("output_dir", nargs = 1, required = True)
+@click.option("--profile", default = False, help="If should profile model training; might be expensive in memory and time")
+@click.option("--epochs", default = 2000, help = "Amount of epochs to train per fold")
+@click.option("--folds", default = 6, help = "Amount of folds for training")
+@click.option("--cache_dir", default = None, help = "Dir where to store cache for training")
+@click.option("--classes", default = None, help = "How many classes to use for the specified dataset. Might raise an error if greater than its corresponding class count")
+@click.option("--frames", default = None, help = "How many frames to use per sign")
+@click.option("--mobilenet", default = False, help = "If should use mobilenet instead of custom CNN module")
+@click.option("--experiment_name", default = "tmlstm_experiment", help = "Experiment name, used for plots and files")
+@click.option("--wandb", default = False, help = "If should use wandb to monitor and register training")
 def train(
     dataset : str, 
     output_dir : str, 
-    profile_model : bool = False, 
-    num_epochs : int = 2000, 
-    num_folds : int = 6, 
+    profile : bool = False, 
+    epochs : int = 2000, 
+    folds : int = 6, 
     cache_dir : Optional[str] = None, 
-    num_classes : Optional[int] = None,
-    num_frames : Optional[int] = None,
-    use_mobilenet : bool = False
+    classes : Optional[int] = None,
+    frames : Optional[int] = None,
+    mobilenet : bool = False,
+    experiment_name : str = "tmlstm_experiment",
+    wandb : bool = False
     ):
-    """Run a training with the specified configuration
+    """Run a training with the specified configuration.
+        Possible values for DATASET: ms, peru, lsa64 
     """
 
     # Sanity check
@@ -169,8 +182,8 @@ def train(
         return
     
     # Set up num_classes, if not provided, take a default depending on selected dataset. 
-    if num_classes is None:
-        num_classes = {
+    if classes is None:
+        classes = {
             "ms" : 20,
             "lsa64" : 32,
             "peru" : 5
@@ -178,11 +191,11 @@ def train(
 
     # We do the same with num_frames as we did with num_classes,
     # we perform a sanity check and then we select the valid default if required 
-    if num_frames is not None and num_frames <= 0:
-        click.echo(f"Invalid number of frames: {num_frames}", err = True)
+    if frames is not None and frames <= 0:
+        click.echo(f"Invalid number of frames: {frames}", err = True)
 
-    if num_frames is None:
-        num_frames = {
+    if frames is None:
+        frames = {
             "ms" : 60,
             "peru" : 80,
             "lsa64" : 200
@@ -211,8 +224,19 @@ def train(
             except Exception as e:
                 click.echo(f"Could not create cache dir: {cache_dir}. Error: {e}", err=True)
                 return
+    else:
+        cache_dir_path = Path(settings.slr_cache)
+        try:
+            cache_dir_path.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+                click.echo(f"Could not create cache dir specified in environment: {cache_dir}. Error: {e}", err=True)
+                return
+        
     
-    
+    # Import models here to avoid slow start up for ML requirements loading
+    from slr.model.trajectory_map_lstm_model import TMLSTMClassifierTrainer
+    trainer = TMLSTMClassifierTrainer(dataset, output_dir_path, profile, epochs, folds, cache_dir_path, classes, frames, experiment_name, mobilenet, wandb)
+    trainer.run()
 
 
 

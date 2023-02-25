@@ -20,6 +20,6 @@ settings = Dynaconf(
         Validator("SLR_HOME", default=str(Path(_HOME, ".usb_slr"))), #type: ignore
 
         # Root folder for cache, mostly used during training
-        Validator("SLR_CACHE", default=".")
+        Validator("SLR_CACHE", default="./cache")
     ]
 )
