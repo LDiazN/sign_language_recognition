@@ -9,7 +9,7 @@ from typing import Optional
 # Local imports 
 from slr.config import settings
 from slr.local_files.file_manager import FileManager
-from slr.dataset_manager.dataset_managers import MicrosoftDatasetManager, PeruDatasetManager
+from slr.dataset_manager.dataset_managers import MicrosoftDatasetManager, PeruDatasetManager, ArgentinaDatasetManager
 
 # Third party imports
 import click
@@ -90,6 +90,11 @@ def peru_dataset(display : bool = False):
 def argentina_dataset(display : bool = False):
     """Generate a numeric dataset and store it locally
     """
+    from mediapipe.python.solutions.holistic import Holistic
+    with Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5) as holistic:
+        ds_manager = ArgentinaDatasetManager()
+        ds_manager.create_numeric_dataset(holistic, display_vids=display)
+        
 @usb_slr.group()
 def load():
     """
@@ -149,15 +154,15 @@ def argentina(path : str):
 @usb_slr.command()
 @click.argument("dataset", nargs = 1, required = True)
 @click.argument("output_dir", nargs = 1, required = True)
-@click.option("--profile", default = False, help="If should profile model training; might be expensive in memory and time")
-@click.option("--epochs", default = 2000, help = "Amount of epochs to train per fold")
-@click.option("--folds", default = 6, help = "Amount of folds for training")
-@click.option("--cache_dir", default = None, help = "Dir where to store cache for training")
-@click.option("--classes", default = None, help = "How many classes to use for the specified dataset. Might raise an error if greater than its corresponding class count")
+@click.option("--profile", default = False, help="If should profile model training; might be expensive in memory and time. Default is no profile.")
+@click.option("--epochs", default = 2000, help = "Amount of epochs to train per fold. Default is 2000 epochs.")
+@click.option("--folds", default = 6, help = "Amount of folds for training. Default is 6 folds.")
+@click.option("--cache_dir", default = None, help = "Dir where to store cache for training.\nDefault is no cache.")
+@click.option("--classes", default = None, help = "How many classes to use for the specified dataset. Might raise an error if greater than its corresponding class count. Default is no classes, recommended is 32.")
 @click.option("--frames", default = None, help = "How many frames to use per sign")
-@click.option("--mobilenet", default = False, help = "If should use mobilenet instead of custom CNN module")
+@click.option("--mobilenet", default = False, help = "If should use mobilenet instead of custom CNN module. Default is to not use it.")
 @click.option("--experiment_name", default = "tmlstm_experiment", help = "Experiment name, used for plots and files")
-@click.option("--wandb", default = False, help = "If should use wandb to monitor and register training")
+@click.option("--wandb", default = False, help = "If should use wandb to monitor and register training. Default is to not use it.")
 def train(
     dataset : str, 
     output_dir : str, 

@@ -30,3 +30,87 @@ La aplicación usa [Poetry](https://python-poetry.org) como manejador de paquete
 
 ## Uso
 La aplicación provista en este repositorio incluye una herramienta de línea de comandos que sirve como interfaz para operaciones comunes sobre las bases de datos, como cargar datos, procesarlos, y ejecutar un entrenamiento.
+
+# Precondiciones
+
+- Tener python 3.8 instalado
+- Tener `poetry` , manejador de paquetes de python, instalado.
+- Tener un manejador de _environments_ de python (como `virtualenvwrapper` )
+
+# Instalación del proyecto
+
+- Activa environment
+- bajo `sign_language_recognition/usb_slr/` corre `poetry install` y espera que se instalen las dependencias
+
+En cada ejecución sucesiva del proyecto se debe cargar el environment
+<aside>
+💡 Si se usa wsl hace falta instalar de forma global tkinter asi:
+
+```bash
+sudo apt-get install python3-tk
+```
+
+</aside>
+
+# Consulta de información para el CLI
+
+Usar `slr --help` , o su equivalente en cada sub comando (e.g. `slr fetch --help`) para consultar opciones adicionales:
+
+![Help de CLI](img/cli-info.png)
+
+<aside>
+💡 Mostrar video
+
+</aside>
+
+# Descarga de datasets
+
+Cada dataset debe descargarse (suelen venir en un zip) y se carga de la siguiente forma
+
+```bash
+slr load argentina-dataset $PATH_TO_ZIPFILE
+```
+
+<aside>
+💡 Excepcion con MS-ASL. Este debe obtenerse utilizando la interfaz de linea de comando
+
+</aside>
+
+# Generacion de datasets numericos
+
+Una vez descargado el dataset, deben generarse los datasets numericos que representan los mismos videos luego de la fase de **feature extraction** es decir, videos que representan secuencias de grafos esqueléticos.
+
+```bash
+slr generate-numeric argentina-dataset
+```
+
+<aside>
+💡 Este es un proceso intensivo, el peso total del conjunto de datos numerico argentino es de 16 GB 
+
+</aside>
+
+![Untitled](img/ds-directory-tree-layout.png)
+
+- 
+
+# Entrenamiento
+
+El entrenamiento cuenta con las siguientes configuraciones y los valores por defecto mostrados.
+
+![Untitled](img/training-configs.png)
+
+Una corrida usual involucra lo siguiente:
+
+```bash
+# Crea un directorio de cache para el entrenamiento y resultados 
+mkdir -p ~/.cache/usb_slr/argentinian_dataset/{train,results} 
+
+# Empieza el entrenamiento
+slr train --cache_dir ~/.cache/usb_slr/argentinian_dataset/train --experiment_name test_arg_dataset lsa64 ~/.cache/usb_slr/argentinian_dataset/results
+```
+
+De este modo, se correra el entrenamiento con la siguiente configuración 
+
+| dataset | epocas | tamaño de lotes | numero de clases | directorio de cache | directorio de resultados | Nombre de experimentos |
+| --- | --- | --- | --- | --- | --- | --- |
+| argentino | 2000 | 32 | 32 | ~/.cache/usb_slr/argentinian_dataset/train | ~/.cache/usb_slr/argentinian_dataset/results | test_arg_dataset |
